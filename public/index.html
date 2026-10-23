@@ -1,0 +1,813 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Inventory Database | Florez Workshop &amp; Old World Studio</title>
+  <link rel="icon" href="assets/logo-320.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Alegreya+SC:wght@500;700;800&family=Alegreya:ital,wght@0,400;0,600;0,700;1,400&family=Work+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+  <!-- Top Brand Navigation Header -->
+  <header class="app-header">
+    <div class="header-inner">
+      <div class="brand-group">
+        <img src="assets/logo-320.png" alt="Old Growth Reclaimed Woods" class="brand-logo">
+        <div class="brand-text">
+          <h1>Old Growth Reclaimed Woods</h1>
+          <p class="subtitle">Operational Inventory Database · <strong>Florez Workshop</strong> &amp; <strong>Old World Studio</strong></p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button class="btn btn-primary" onclick="openNewItemModal()">
+          <span class="icon">+</span> Add New Stock
+        </button>
+        <button class="btn btn-network" onclick="openShareModal()">
+          <span class="icon">🔗</span> Share Internally (LAN)
+        </button>
+        <button class="btn btn-outline" onclick="triggerDbBackup()">
+          <span class="icon">💾</span> Snapshot Backup
+        </button>
+        <button class="btn btn-outline" onclick="exportStandardCsv()">
+          <span class="icon">📥</span> Export CSV
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Live KPI Metrics Strip -->
+  <section class="kpi-strip">
+    <div class="kpi-card">
+      <div class="kpi-label">Total Inventory Valuation</div>
+      <div class="kpi-value highlight-gold" id="stat-valuation">$0.00</div>
+      <div class="kpi-sub" id="stat-pieces">0 cataloged lots</div>
+    </div>
+    <div class="kpi-card clickable" onclick="filterByLocationDirect('Florez Workshop')" title="Filter by Florez Workshop">
+      <div class="kpi-label">Florez Workshop</div>
+      <div class="kpi-value highlight-green" id="stat-florez-count">0 lots</div>
+      <div class="kpi-sub" id="stat-florez-sub">Timbers, Milled Flooring, Siding</div>
+    </div>
+    <div class="kpi-card clickable" onclick="filterByLocationDirect('Old World Studio')" title="Filter by Old World Studio">
+      <div class="kpi-label">Old World Studio</div>
+      <div class="kpi-value highlight-blue" id="stat-studio-count">0 lots</div>
+      <div class="kpi-sub" id="stat-studio-sub">Salvage, Furniture, Art, Hardware</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Total Timber Footage</div>
+      <div class="kpi-value" id="stat-bf">0 BF</div>
+      <div class="kpi-sub" id="stat-sqft">0 Sq Ft Flooring</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Milling / Processing</div>
+      <div class="kpi-value highlight-amber" id="stat-mill">0</div>
+      <div class="kpi-sub">Active with Rey Florez</div>
+    </div>
+  </section>
+
+  <!-- Navigation Tabs -->
+  <nav class="app-tabs">
+    <div class="tabs-inner">
+      <button class="tab-btn active" data-tab="catalog-tab">
+        <span class="tab-icon">🪵</span> Inventory Catalog &amp; Stock
+      </button>
+      <button class="tab-btn" data-tab="locations-tab">
+        <span class="tab-icon">🏢</span> Locations (Workshop &amp; Studio)
+      </button>
+      <button class="tab-btn" data-tab="calculator-tab">
+        <span class="tab-icon">📐</span> Timber &amp; Price Yard Calculator
+      </button>
+      <button class="tab-btn" data-tab="mill-tab">
+        <span class="tab-icon">⚙️</span> Florez Millwork Tracking
+      </button>
+      <button class="tab-btn" data-tab="listing-tab">
+        <span class="tab-icon">📢</span> Omnichannel Lister (FB / Chairish)
+      </button>
+      <button class="tab-btn" data-tab="logs-tab">
+        <span class="tab-icon">📜</span> Audit History
+      </button>
+    </div>
+  </nav>
+
+  <!-- Main Content Container -->
+  <main class="app-main">
+
+    <!-- 1. CATALOG TAB -->
+    <section id="catalog-tab" class="tab-pane active">
+      <div class="filter-bar">
+        <div class="search-box">
+          <span class="search-icon">🔍</span>
+          <input type="text" id="filter-search" placeholder="Search by SKU, timber lot, species, dimensions, or location..." oninput="handleSearchInput()">
+        </div>
+        <div class="filter-controls">
+          <!-- Strict Two Location Filter -->
+          <select id="filter-location" onchange="applyFilters()">
+            <option value="ALL">All Locations</option>
+            <option value="Florez Workshop">Florez Workshop</option>
+            <option value="Old World Studio">Old World Studio</option>
+          </select>
+
+          <select id="filter-category" onchange="applyFilters()">
+            <option value="ALL">All Categories</option>
+            <option value="TIM">Timber &amp; Beams (TIM)</option>
+            <option value="FLR">Reclaimed Flooring (FLR)</option>
+            <option value="ARC">Architectural Salvage (ARC)</option>
+            <option value="FUR">Furniture &amp; Display (FUR)</option>
+            <option value="ART">Art &amp; Collectibles (ART)</option>
+            <option value="HDW">Hardware &amp; Industrial (HDW)</option>
+          </select>
+
+          <select id="filter-status" onchange="applyFilters()">
+            <option value="ALL">All Statuses</option>
+            <option value="Available">Available</option>
+            <option value="In Mill Processing">In Mill Processing</option>
+            <option value="Sold Out">Sold Out</option>
+          </select>
+
+          <select id="filter-sort" onchange="applyFilters()">
+            <option value="catalog">Sort: Catalog Order</option>
+            <option value="florez_first">Sort: Florez Workshop First</option>
+            <option value="studio_first">Sort: Old World Studio First</option>
+            <option value="lot_asc">Sort: Lot Number (Lot 01, 02...)</option>
+            <option value="name_asc">Sort: Name (A to Z)</option>
+            <option value="price_desc">Price: High to Low</option>
+            <option value="price_asc">Price: Low to High</option>
+            <option value="bf_desc">Board Feet: High to Low</option>
+            <option value="sku_asc">SKU (A to Z)</option>
+          </select>
+
+          <div class="view-toggles">
+            <button class="view-btn active" id="view-table-btn" title="Table View" onclick="setViewMode('table')">☰</button>
+            <button class="view-btn" id="view-grid-btn" title="Grid View" onclick="setViewMode('grid')">⊞</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Category Filter Chips -->
+      <div class="category-chips" id="category-chips"></div>
+
+      <!-- Results Count & Active Filters -->
+      <div class="results-header">
+        <span id="results-count">Showing 0 inventory lots</span>
+        <div class="quick-stock-hint">
+          <small class="hint">💡 <strong>Quick Stock:</strong> Use <strong>[-]</strong> or <strong>[+]</strong> on any item row to instantly log sales, deduct stock, or add incoming pieces.</small>
+          <button class="btn btn-text" onclick="resetFilters()">Reset All Filters</button>
+        </div>
+      </div>
+
+      <!-- Table View Container -->
+      <div class="table-container" id="inventory-table-container">
+        <table class="inventory-table">
+          <thead>
+            <tr>
+              <th style="width: 70px;">Photo</th>
+              <th style="width: 130px;">SKU</th>
+              <th>Item / Lot Name</th>
+              <th>Location</th>
+              <th>Category &amp; Species</th>
+              <th>Dimensions</th>
+              <th style="width: 140px; text-align: center;">Stock Count</th>
+              <th>Volume / Area</th>
+              <th>Target Price</th>
+              <th>Status</th>
+              <th style="text-align: right;">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="inventory-table-body"></tbody>
+        </table>
+      </div>
+
+      <!-- Grid Cards View Container -->
+      <div class="grid-container" id="inventory-grid-container" style="display: none;"></div>
+    </section>
+
+    <!-- 2. LOCATIONS (WORKSHOP & STUDIO) TAB -->
+    <section id="locations-tab" class="tab-pane">
+      <div class="section-toolbar">
+        <div class="section-title-wrap">
+          <h2>🏢 Designated Inventory Locations</h2>
+          <p>Presently, all company inventory is situated across these two primary facilities. Click any facility card to filter the catalog.</p>
+        </div>
+      </div>
+
+      <div class="locations-hero-grid">
+        <!-- Florez Workshop Card -->
+        <div class="location-hero-card" onclick="filterByLocationDirect('Florez Workshop')">
+          <div class="loc-badge florez-badge">WORKSHOP &amp; MILL FACILITY</div>
+          <h3>Florez Workshop</h3>
+          <p class="loc-address">📍 300 Race Ave Bldg 6, Waynesboro, VA 22980 · In partnership with Rey Florez</p>
+          <p class="loc-summary">Home to all heavy structural timber bundles, rough-sawn Heart Pine beams, quartersawn flooring runs, hit-and-miss wall paneling, and active custom millwork orders.</p>
+          
+          <div class="loc-stat-strip">
+            <div class="loc-stat-item">
+              <span class="stat-num" id="florez-items-stat">0</span>
+              <span class="stat-desc">Inventory Lots</span>
+            </div>
+            <div class="loc-stat-item">
+              <span class="stat-num highlight-gold" id="florez-bf-stat">0 BF</span>
+              <span class="stat-desc">Timber Volume</span>
+            </div>
+            <div class="loc-stat-item">
+              <span class="stat-num highlight-green" id="florez-val-stat">$0.00</span>
+              <span class="stat-desc">Total Valuation</span>
+            </div>
+          </div>
+          <button class="btn btn-outline btn-sm loc-view-btn">View Florez Workshop Stock →</button>
+        </div>
+
+        <!-- Old World Studio Card -->
+        <div class="location-hero-card" onclick="filterByLocationDirect('Old World Studio')">
+          <div class="loc-badge studio-badge">STUDIO &amp; SHOWROOM</div>
+          <h3>Old World Studio</h3>
+          <p class="loc-address">📍 Waynesboro / Charlottesville, VA · Curated Archive</p>
+          <p class="loc-summary">Houses Jim Morgan's architectural salvage collection, 19th-century fireplace mantels, antique store fixtures, vintage chairs, historic lithographs, and Chairish-ready treasures.</p>
+          
+          <div class="loc-stat-strip">
+            <div class="loc-stat-item">
+              <span class="stat-num" id="studio-items-stat">0</span>
+              <span class="stat-desc">Cataloged Lots</span>
+            </div>
+            <div class="loc-stat-item">
+              <span class="stat-num highlight-blue" id="studio-chairish-stat">0</span>
+              <span class="stat-desc">Chairish Ready</span>
+            </div>
+            <div class="loc-stat-item">
+              <span class="stat-num highlight-gold" id="studio-val-stat">$0.00</span>
+              <span class="stat-desc">Total Valuation</span>
+            </div>
+          </div>
+          <button class="btn btn-outline btn-sm loc-view-btn">View Old World Studio Stock →</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3. TIMBER & PRICING CALCULATOR TAB -->
+    <section id="calculator-tab" class="tab-pane">
+      <div class="calc-wrapper">
+        <div class="calc-card">
+          <div class="calc-header">
+            <h2>📐 On-Site Timber &amp; Price Yard Calculator</h2>
+            <p>Formula: <code>(Thickness″ × Width″ × Length′) ÷ 12 × Pieces</code> with species density weight calculations.</p>
+          </div>
+          
+          <div class="calc-form-grid">
+            <div class="form-group">
+              <label>Wood Species</label>
+              <select id="calc-species" onchange="runCalculator()">
+                <option value="Heart Pine" data-density="42">Antique Longleaf Heart Pine (42 lbs/cu ft)</option>
+                <option value="White Oak" data-density="48">Reclaimed White Oak (48 lbs/cu ft)</option>
+                <option value="Red Oak" data-density="45">Reclaimed Red Oak (45 lbs/cu ft)</option>
+                <option value="White Pine" data-density="30">Reclaimed White Pine (30 lbs/cu ft)</option>
+                <option value="Black Walnut" data-density="38">Black Walnut (38 lbs/cu ft)</option>
+                <option value="American Chestnut" data-density="30">Wormy American Chestnut (30 lbs/cu ft)</option>
+                <option value="Poplar" data-density="28">Antique Poplar (28 lbs/cu ft)</option>
+                <option value="Cypress" data-density="32">Tidewater Cypress (32 lbs/cu ft)</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label>Designated Location</label>
+              <select id="calc-location">
+                <option value="Florez Workshop">Florez Workshop</option>
+                <option value="Old World Studio">Old World Studio</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label>Thickness (Inches)</label>
+              <input type="number" id="calc-thick" value="8" step="0.25" min="0.1" oninput="runCalculator()">
+              <small class="hint">e.g. 8" beam or 0.75" flooring</small>
+            </div>
+
+            <div class="form-group">
+              <label>Width (Inches)</label>
+              <input type="number" id="calc-width" value="10" step="0.25" min="0.1" oninput="runCalculator()">
+              <small class="hint">e.g. 10" beam face</small>
+            </div>
+
+            <div class="form-group">
+              <label>Length (Feet)</label>
+              <input type="number" id="calc-length" value="16" step="0.5" min="0.5" oninput="runCalculator()">
+              <small class="hint">e.g. 16' span</small>
+            </div>
+
+            <div class="form-group">
+              <label>Number of Pieces</label>
+              <input type="number" id="calc-pieces" value="10" min="1" oninput="runCalculator()">
+              <small class="hint">Total timbers in lot</small>
+            </div>
+
+            <div class="form-group">
+              <label>Price per Board Foot ($ / BF)</label>
+              <input type="number" id="calc-price-unit" value="14.50" step="0.25" min="0" oninput="runCalculator()">
+              <small class="hint">Target retail price</small>
+            </div>
+          </div>
+
+          <!-- Live Calc Output Display -->
+          <div class="calc-results-panel">
+            <div class="res-box">
+              <div class="res-val" id="res-bf">1,066.7 BF</div>
+              <div class="res-lbl">Total Board Feet</div>
+            </div>
+            <div class="res-box">
+              <div class="res-val" id="res-bf-piece">106.7 BF</div>
+              <div class="res-lbl">Per Timber Piece</div>
+            </div>
+            <div class="res-box">
+              <div class="res-val" id="res-weight">~3,733 lbs</div>
+              <div class="res-lbl">Total Lot Weight (Forklift Required)</div>
+            </div>
+            <div class="res-box">
+              <div class="res-val" id="res-weight-piece">~373 lbs</div>
+              <div class="res-lbl">Per Timber Weight</div>
+            </div>
+            <div class="res-box highlight-box">
+              <div class="res-val highlight-gold" id="res-retail">$15,466.67</div>
+              <div class="res-lbl">Target Retail Valuation</div>
+            </div>
+            <div class="res-box">
+              <div class="res-val" id="res-wholesale">$10,826.67</div>
+              <div class="res-lbl">Wholesale / Contractor (70%)</div>
+            </div>
+          </div>
+
+          <div class="calc-actions">
+            <button class="btn btn-primary" onclick="createLotFromCalculator()">
+              ➕ Save As New Inventory Item
+            </button>
+            <button class="btn btn-outline" onclick="printTallyCard()">
+              🖨️ Print Timber Tally Sheet
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4. FLOREZ MILLWORK TRACKING TAB -->
+    <section id="mill-tab" class="tab-pane">
+      <div class="section-toolbar">
+        <div class="section-title-wrap">
+          <h2>⚙️ Florez Millwork Service Orders</h2>
+          <p>Tracking timber and lumber lots processed at <strong>Florez Workshop</strong> with Rey Florez.</p>
+        </div>
+        <button class="btn btn-primary" onclick="openNewMillJobModal()">+ Dispatch New Mill Job</button>
+      </div>
+
+      <div class="mill-jobs-grid" id="mill-jobs-container"></div>
+    </section>
+
+    <!-- 5. OMNICHANNEL LISTER TAB -->
+    <section id="listing-tab" class="tab-pane">
+      <div class="section-toolbar">
+        <div class="section-title-wrap">
+          <h2>📢 Omnichannel Listing Generator</h2>
+          <p>Instantly generate copy and formats for Facebook Marketplace, Craigslist, and Chairish with verified location details.</p>
+        </div>
+        <button class="btn btn-outline" onclick="exportChairishCsv()">📥 Export Chairish Batch CSV</button>
+      </div>
+
+      <div class="lister-layout">
+        <div class="lister-sidebar">
+          <label>Select Inventory Item:</label>
+          <select id="lister-item-select" onchange="loadListingCopy(this.value)"></select>
+          <div class="lister-item-preview" id="lister-item-card"></div>
+        </div>
+
+        <div class="lister-content">
+          <div class="platform-tabs">
+            <button class="platform-btn active" onclick="switchPlatform('fb')">Facebook Marketplace</button>
+            <button class="platform-btn" onclick="switchPlatform('craigslist')">Craigslist Post</button>
+            <button class="platform-btn" onclick="switchPlatform('chairish')">Chairish Format</button>
+          </div>
+
+          <div id="pane-fb" class="platform-pane active">
+            <div class="copy-box-header">
+              <h3>Facebook Marketplace Copy</h3>
+              <button class="btn btn-sm btn-outline" onclick="copyToClipboard('fb-copy-area')">📋 Copy Listing Text</button>
+            </div>
+            <textarea id="fb-copy-area" readonly class="code-area" rows="18"></textarea>
+          </div>
+
+          <div id="pane-craigslist" class="platform-pane">
+            <div class="copy-box-header">
+              <h3>Craigslist Formatted Post</h3>
+              <button class="btn btn-sm btn-outline" onclick="copyToClipboard('cl-copy-area')">📋 Copy Craigslist Post</button>
+            </div>
+            <textarea id="cl-copy-area" readonly class="code-area" rows="18"></textarea>
+          </div>
+
+          <div id="pane-chairish" class="platform-pane">
+            <div class="copy-box-header">
+              <h3>Chairish Listing Record (Waynesboro / Studio)</h3>
+              <button class="btn btn-sm btn-outline" onclick="copyToClipboard('chairish-copy-area')">📋 Copy JSON</button>
+            </div>
+            <textarea id="chairish-copy-area" readonly class="code-area" rows="18"></textarea>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6. AUDIT LOGS & BACKUPS TAB -->
+    <section id="logs-tab" class="tab-pane">
+      <div class="section-toolbar">
+        <div class="section-title-wrap">
+          <h2>📜 System Activity &amp; Audit Trail</h2>
+          <p>Full transaction log of item creation, stock additions/deductions, milling updates, and database snapshots.</p>
+        </div>
+        <button class="btn btn-primary" onclick="triggerDbBackup()">💾 Create Immediate Snapshot Backup</button>
+      </div>
+
+      <div class="table-container">
+        <table class="inventory-table">
+          <thead>
+            <tr>
+              <th style="width: 80px;">ID</th>
+              <th style="width: 160px;">Timestamp</th>
+              <th style="width: 140px;">User</th>
+              <th style="width: 180px;">Action</th>
+              <th>Details</th>
+            </tr>
+          </thead>
+          <tbody id="logs-table-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- MODAL: QUICK STOCK ADJUSTMENT (+ / -) -->
+  <div class="modal-overlay" id="stock-modal" onclick="closeModalOnOverlay(event, 'stock-modal')">
+    <div class="modal-content modal-sm">
+      <div class="modal-header">
+        <div>
+          <h2 id="stock-modal-title">Adjust Stock</h2>
+          <div class="modal-sku" id="stock-modal-sku">SKU · Item Name</div>
+        </div>
+        <button class="modal-close" onclick="closeModal('stock-modal')">×</button>
+      </div>
+      <form id="stock-form" onsubmit="handleStockFormSubmit(event)">
+        <input type="hidden" id="stock-item-id">
+        <input type="hidden" id="stock-direction">
+        
+        <div class="modal-body form-grid">
+          <div class="current-stock-callout full-width">
+            <div>Current Stock: <strong id="stock-current-pcs">0</strong> pieces</div>
+            <div class="sub-callout" id="stock-current-footage">0 BF / Sq Ft</div>
+          </div>
+
+          <div class="form-group full-width">
+            <label id="stock-amount-label">Number of Pieces to Subtract *</label>
+            <input type="number" id="stock-delta-input" min="1" value="1" required oninput="calculateProjectedStock()">
+          </div>
+
+          <div class="form-group full-width">
+            <label>Reason for Adjustment</label>
+            <select id="stock-reason-select" onchange="toggleCustomReason()">
+              <option value="Sold to Client">Sold to Client</option>
+              <option value="Dispatched to Mill (Rey Florez)">Dispatched to Mill (Rey Florez)</option>
+              <option value="Used in Internal Project">Used in Internal Project</option>
+              <option value="Damaged / Offcut">Damaged / Offcut</option>
+              <option value="Inventory Recount">Inventory Recount</option>
+              <option value="Other">Other (specify in notes)</option>
+            </select>
+          </div>
+
+          <div class="form-group full-width">
+            <label>Notes / Buyer Name (Optional)</label>
+            <input type="text" id="stock-notes-input" placeholder="e.g. Sold 2 pieces to local contractor for mantel">
+          </div>
+
+          <div class="projected-stock-panel full-width">
+            <span>Remaining After Adjustment:</span>
+            <strong id="stock-projected-pcs">0 pieces</strong>
+            <span id="stock-projected-footage" class="highlight-gold">(0 BF)</span>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" onclick="closeModal('stock-modal')">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="stock-submit-btn">Confirm Stock Adjustment</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: ADD / EDIT ITEM (Strictly Two Locations) -->
+  <div class="modal-overlay" id="item-form-modal" onclick="closeModalOnOverlay(event, 'item-form-modal')">
+    <div class="modal-content modal-md">
+      <div class="modal-header">
+        <h2 id="item-form-title">Add New Stock</h2>
+        <button class="modal-close" onclick="closeModal('item-form-modal')">×</button>
+      </div>
+      <form id="item-form" onsubmit="handleItemFormSubmit(event)">
+        <input type="hidden" id="form-item-id">
+        <div class="modal-body form-grid">
+          <div class="form-group full-width">
+            <label>Item / Lot Name *</label>
+            <input type="text" id="form-name" required placeholder="e.g. Reclaimed White Oak Beams (8x8 x 14')">
+          </div>
+
+          <div class="form-group">
+            <label>Designated Location *</label>
+            <select id="form-location" required>
+              <option value="Florez Workshop">Florez Workshop (Mill &amp; Timber Yard)</option>
+              <option value="Old World Studio">Old World Studio (Showroom &amp; Salvage)</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label>Category *</label>
+            <select id="form-category" required>
+              <option value="TIM">Timber &amp; Beams (TIM)</option>
+              <option value="FLR">Reclaimed Flooring (FLR)</option>
+              <option value="ARC">Architectural Salvage (ARC)</option>
+              <option value="FUR">Furniture &amp; Display (FUR)</option>
+              <option value="ART">Art &amp; Collectibles (ART)</option>
+              <option value="HDW">Hardware &amp; Industrial (HDW)</option>
+              <option value="MISC">Miscellaneous (MISC)</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label>SKU (Auto-generated if blank)</label>
+            <input type="text" id="form-sku" placeholder="Auto-generated">
+          </div>
+
+          <div class="form-group">
+            <label>Species / Material</label>
+            <input type="text" id="form-species" placeholder="e.g. Heart Pine, White Oak, Cast Iron">
+          </div>
+
+          <div class="form-group">
+            <label>Dimensions Display</label>
+            <input type="text" id="form-dim-display" placeholder="e.g. 8x10 x 16' (10 pcs)">
+          </div>
+
+          <div class="form-group">
+            <label>Thickness (in)</label>
+            <input type="number" id="form-thick" step="0.25" placeholder="8">
+          </div>
+
+          <div class="form-group">
+            <label>Width (in)</label>
+            <input type="number" id="form-width" step="0.25" placeholder="10">
+          </div>
+
+          <div class="form-group">
+            <label>Length (ft)</label>
+            <input type="number" id="form-length" step="0.5" placeholder="16">
+          </div>
+
+          <div class="form-group">
+            <label>Piece Count *</label>
+            <input type="number" id="form-pieces" value="1" min="0" required>
+          </div>
+
+          <div class="form-group">
+            <label>Board Feet (BF)</label>
+            <input type="number" id="form-bf" step="0.1" placeholder="Auto-computed if dimensions set">
+          </div>
+
+          <div class="form-group">
+            <label>Square Feet (Sq Ft)</label>
+            <input type="number" id="form-sqft" step="0.1" placeholder="For flooring / paneling">
+          </div>
+
+          <div class="form-group">
+            <label>Target Sale Price ($) *</label>
+            <input type="number" id="form-target-price" step="0.01" required placeholder="e.g. 4200.00">
+          </div>
+
+          <div class="form-group">
+            <label>Status</label>
+            <select id="form-status">
+              <option value="Available">Available</option>
+              <option value="In Mill Processing">In Mill Processing</option>
+              <option value="Reserved">Reserved</option>
+              <option value="Sold Out">Sold Out</option>
+            </select>
+          </div>
+
+          <div class="form-group full-width">
+            <label>Provenance &amp; Description</label>
+            <textarea id="form-desc" rows="3" placeholder="Condition, grain density, historical notes, saw marks..."></textarea>
+          </div>
+
+          <div class="form-group full-width">
+            <label>Photo URL / File</label>
+            <input type="text" id="form-photo" placeholder="/assets/photos/beams.jpg or /assets/photos/florez/item_1.jpg">
+          </div>
+
+          <div class="form-group full-width checkbox-row">
+            <label><input type="checkbox" id="form-chairish"> Ready for Chairish Batch Listing</label>
+            <label><input type="checkbox" id="form-marketplace"> Ready for Facebook Marketplace &amp; Craigslist</label>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" onclick="closeModal('item-form-modal')">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Stock Entry</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: ITEM DETAIL & PHOTO VIEWER -->
+  <div class="modal-overlay" id="detail-modal" onclick="closeModalOnOverlay(event, 'detail-modal')">
+    <div class="modal-content modal-lg">
+      <div class="modal-header">
+        <div>
+          <span class="badge" id="modal-item-category">Category</span>
+          <span class="badge badge-loc" id="modal-item-location">Florez Workshop</span>
+          <h2 id="modal-item-title">Item Title</h2>
+          <div class="modal-sku" id="modal-item-sku">SKU</div>
+        </div>
+        <button class="modal-close" onclick="closeModal('detail-modal')">×</button>
+      </div>
+
+      <div class="modal-body">
+        <div class="detail-grid">
+          <div class="detail-gallery">
+            <div class="main-photo-frame">
+              <img id="detail-main-img" src="assets/photos/beams.jpg" alt="Selected item photo">
+            </div>
+            <div class="photo-thumbnails" id="detail-thumbnails"></div>
+          </div>
+
+          <div class="detail-specs">
+            <div class="spec-card">
+              <h3>Dimensions &amp; Physical Stock</h3>
+              <div class="spec-row">
+                <span class="spec-lbl">Location:</span>
+                <span class="spec-val font-bold" id="detail-loc">Florez Workshop</span>
+              </div>
+              <div class="spec-row">
+                <span class="spec-lbl">Dimensions:</span>
+                <span class="spec-val font-bold" id="detail-dim">—</span>
+              </div>
+              <div class="spec-row">
+                <span class="spec-lbl">Current Stock Count:</span>
+                <span class="spec-val font-bold" id="detail-pcs">—</span>
+              </div>
+              <div class="spec-row">
+                <span class="spec-lbl">Footage / Area:</span>
+                <span class="spec-val highlight-gold" id="detail-bf">—</span>
+              </div>
+              <div class="spec-row">
+                <span class="spec-lbl">Status:</span>
+                <span class="spec-val" id="detail-status">—</span>
+              </div>
+            </div>
+
+            <div class="spec-card">
+              <h3>Pricing &amp; Valuation</h3>
+              <div class="spec-row">
+                <span class="spec-lbl">Target Sale Price:</span>
+                <span class="spec-val highlight-gold text-lg" id="detail-price">$0.00</span>
+              </div>
+              <div class="spec-row">
+                <span class="spec-lbl">Unit Price:</span>
+                <span class="spec-val" id="detail-unit-price">—</span>
+              </div>
+            </div>
+
+            <div class="spec-card">
+              <h3>Provenance &amp; History</h3>
+              <p class="history-text" id="detail-provenance">—</p>
+              <div class="notes-block" id="detail-notes">—</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="detail-full-desc">
+          <h3>Full Specifications</h3>
+          <p id="detail-desc">—</p>
+          <div id="detail-flag-alert" class="flag-alert" style="display: none;"></div>
+        </div>
+
+        <div class="detail-mill-section" id="detail-mill-section" style="display: none;">
+          <h3>Milling Orders Associated With This Lot</h3>
+          <div id="detail-mill-list"></div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-outline" onclick="openStockAdjustModalFromDetail(-1)">➖ Deduct / Log Sale</button>
+        <button class="btn btn-outline" onclick="openStockAdjustModalFromDetail(1)">➕ Add Stock</button>
+        <button class="btn btn-outline" onclick="openEditItemModalFromDetail()">✏️ Edit Details</button>
+        <button class="btn btn-primary" onclick="openListerForItem()">📢 Generate Listing</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: INTERNAL NETWORK SHARING -->
+  <div class="modal-overlay" id="share-modal" onclick="closeModalOnOverlay(event, 'share-modal')">
+    <div class="modal-content modal-sm">
+      <div class="modal-header">
+        <h2>🔗 Share Tool Internally</h2>
+        <button class="modal-close" onclick="closeModal('share-modal')">×</button>
+      </div>
+      <div class="modal-body">
+        <p style="margin-bottom: 14px;">This inventory system is running live on your local network. Any computer, iPad, tablet, or phone connected to the workshop/studio Wi-Fi can open it directly:</p>
+        
+        <div class="share-box">
+          <label>Workshop / Studio Wi-Fi URL (Same Network):</label>
+          <div class="share-url-row">
+            <input type="text" id="share-network-url" readonly value="http://192.168.1.162:3000">
+            <button class="btn btn-primary" onclick="copyShareUrl()">Copy Link</button>
+          </div>
+        </div>
+
+        <div class="share-box" style="margin-top: 14px;">
+          <label>Remote / Cellular Mobile Bridge (Cloudflare &amp; Squarespace):</label>
+          <div class="share-url-row">
+            <input type="text" id="share-tunnel-url" readonly placeholder="Connecting Cloudflare bridge...">
+            <button class="btn btn-primary" onclick="copyTunnelUrl()">Copy Link</button>
+          </div>
+          <small style="color: #c8a57c; display: block; margin-top: 5px;" id="share-tunnel-status">🟡 Initializing self-healing mobile bridge...</small>
+        </div>
+
+        <div class="share-box" style="margin-top: 14px;">
+          <label>Local Host URL (this computer):</label>
+          <input type="text" readonly value="http://localhost:3000" style="width: 100%; padding: 8px;">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline" onclick="closeModal('share-modal')">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: NEW MILL WORK ORDER -->
+  <div class="modal-overlay" id="mill-modal" onclick="closeModalOnOverlay(event, 'mill-modal')">
+    <div class="modal-content modal-md">
+      <div class="modal-header">
+        <h2>⚙️ New Mill Service Work Order</h2>
+        <button class="modal-close" onclick="closeModal('mill-modal')">×</button>
+      </div>
+      <form id="mill-form" onsubmit="handleMillFormSubmit(event)">
+        <div class="modal-body form-grid">
+          <div class="form-group full-width">
+            <label>Inventory Item Lot *</label>
+            <select id="mill-form-item" required></select>
+          </div>
+
+          <div class="form-group">
+            <label>Miller / Facility</label>
+            <input type="text" id="mill-form-miller" value="Rey Florez · Florez Millwork" required>
+          </div>
+
+          <div class="form-group">
+            <label>Service Requested *</label>
+            <select id="mill-form-service" required>
+              <option value="Custom Resawing & Dimensioning">Custom Resawing &amp; Dimensioning</option>
+              <option value="Planing & 4-Side Surfacing (S4S)">Planing &amp; 4-Side Surfacing (S4S)</option>
+              <option value="Tongue & Groove Flooring Milling">Tongue &amp; Groove Flooring Milling</option>
+              <option value="Hit & Miss Paneling Profiling">Hit &amp; Miss Paneling Profiling</option>
+              <option value="Beam Squaring & End Trimming">Beam Squaring &amp; End Trimming</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label>Date Sent</label>
+            <input type="date" id="mill-form-date" required>
+          </div>
+
+          <div class="form-group">
+            <label>Estimated Completion</label>
+            <input type="date" id="mill-form-est-date">
+          </div>
+
+          <div class="form-group">
+            <label>Input Quantity (BF / Pcs)</label>
+            <input type="number" id="mill-form-input-qty" step="0.1" placeholder="e.g. 450">
+          </div>
+
+          <div class="form-group">
+            <label>Estimated Cost ($)</label>
+            <input type="number" id="mill-form-cost" step="0.01" placeholder="e.g. 450.00">
+          </div>
+
+          <div class="form-group full-width">
+            <label>Yield Expectations &amp; Notes</label>
+            <textarea id="mill-form-notes" rows="2" placeholder="Notes for Rey Florez..."></textarea>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" onclick="closeModal('mill-modal')">Cancel</button>
+          <button type="submit" class="btn btn-primary">Dispatch Work Order</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

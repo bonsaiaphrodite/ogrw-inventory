@@ -1,0 +1,25 @@
+{
+  "name": "old-growth-reclaimed-woods-inventory",
+  "version": "1.0.0",
+  "description": "Yard & Warehouse Inventory Management System for Old Growth Reclaimed Woods (Jim Morgan & Erin)",
+  "main": "server.js",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "start:local": "node supervisor.js",
+    "server": "node server.js",
+    "seed": "node seed.js",
+    "backup": "node -e \"const { backupDatabase } = require('./db.js'); console.log('Backup saved:', backupDatabase());\""
+  },
+  "keywords": [
+    "reclaimed-wood",
+    "timber-inventory",
+    "heart-pine",
+    "florez-millwork",
+    "sqlite"
+  ],
+  "author": "Old Growth Reclaimed Woods",
+  "license": "ISC"
+}

@@ -1,0 +1,7 @@
+cloudflared.exe
+tunnel.log
+tunnel_info.json
+.env
+node_modules/
+data/backups/*
+!data/backups/.gitkeep
