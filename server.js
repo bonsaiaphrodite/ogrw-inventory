@@ -504,11 +504,13 @@ const server = http.createServer(async (req, res) => {
       if (pathname === '/api/items' && method === 'POST') {
         const data = await parseJsonBody(req);
         
-        // Auto-generate SKU if omitted
+        // Auto-generate SKU if omitted (FM for wood bundles, OG for studio art/furniture)
         if (!data.sku) {
-          const prefix = data.category_code || 'GEN';
-          const count = db.prepare('SELECT COUNT(*) as cnt FROM items WHERE category_code = ?').get(data.category_code || 'GEN').cnt + 1;
-          data.sku = `OG-${prefix}-${String(count).padStart(3, '0')}`;
+          const cat = data.category_code || 'GEN';
+          const isWood = cat === 'TIM' || cat === 'FLR' || data.yard_location === 'Florez Workshop';
+          const prefix = isWood ? 'FM' : 'OG';
+          const count = db.prepare('SELECT COUNT(*) as cnt FROM items WHERE category_code = ?').get(cat).cnt + 1;
+          data.sku = `${prefix}-${cat}-${String(count).padStart(2, '0')}`;
         }
 
         // Default location must be one of the two designated locations
