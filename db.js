@@ -3,21 +3,46 @@ const path = require('node:path');
 const fs = require('node:fs');
 
 const BUNDLED_DB_PATH = path.join(__dirname, 'data', 'inventory.db');
+const SEED_DB_PATH = fs.existsSync(path.join(__dirname, 'seed_inventory.db'))
+  ? path.join(__dirname, 'seed_inventory.db')
+  : BUNDLED_DB_PATH;
 const VOLUME_DIR = process.env.RAILWAY_VOLUME_MOUNT_PATH;
-const DB_PATH = process.env.DB_PATH || (VOLUME_DIR ? path.join(VOLUME_DIR, 'inventory.db') : BUNDLED_DB_PATH);
+
+function resolveDbPath() {
+  if (process.env.DB_PATH) return process.env.DB_PATH;
+  if (VOLUME_DIR) {
+    try {
+      fs.mkdirSync(VOLUME_DIR, { recursive: true });
+      fs.mkdirSync(path.join(VOLUME_DIR, 'backups'), { recursive: true });
+      const testFile = path.join(VOLUME_DIR, '.write_test');
+      fs.writeFileSync(testFile, 'ok');
+      fs.unlinkSync(testFile);
+      return path.join(VOLUME_DIR, 'inventory.db');
+    } catch (err) {
+      console.warn(`[DB] Volume at ${VOLUME_DIR} not writable (${err.message}), falling back to local data directory.`);
+    }
+  }
+  return BUNDLED_DB_PATH;
+}
+
+const DB_PATH = resolveDbPath();
 
 // Ensure data and backup directories exist
 const dataDir = path.dirname(DB_PATH);
-fs.mkdirSync(dataDir, { recursive: true });
-fs.mkdirSync(path.join(dataDir, 'backups'), { recursive: true });
+try {
+  fs.mkdirSync(dataDir, { recursive: true });
+  fs.mkdirSync(path.join(dataDir, 'backups'), { recursive: true });
+} catch (err) {
+  console.warn('[DB] Directory creation warning:', err.message);
+}
 
-// If running with a Railway persistent volume and volume DB does not exist yet, seed from bundled DB
-if (DB_PATH !== BUNDLED_DB_PATH && !fs.existsSync(DB_PATH) && fs.existsSync(BUNDLED_DB_PATH)) {
+// If DB_PATH does not exist yet (or is 0 bytes), seed from SEED_DB_PATH
+if (DB_PATH !== SEED_DB_PATH && (!fs.existsSync(DB_PATH) || fs.statSync(DB_PATH).size === 0) && fs.existsSync(SEED_DB_PATH)) {
   try {
-    fs.copyFileSync(BUNDLED_DB_PATH, DB_PATH);
-    console.log(`[DB] Initialized persistent volume database at ${DB_PATH} from bundled snapshot.`);
+    fs.copyFileSync(SEED_DB_PATH, DB_PATH);
+    console.log(`[DB] Initialized persistent database at ${DB_PATH} from seed snapshot.`);
   } catch (err) {
-    console.error('[DB] Failed to copy bundled DB to volume:', err.message);
+    console.error('[DB] Failed to copy seed DB to volume:', err.message);
   }
 }
 
@@ -28,6 +53,20 @@ function getDb() {
     dbInstance = new DatabaseSync(DB_PATH);
     dbInstance.exec('PRAGMA foreign_keys = ON;');
     initSchema(dbInstance);
+    // If running on Railway and the volume database was initialized empty (0 items), seed from SEED_DB_PATH
+    try {
+      const cnt = dbInstance.prepare('SELECT COUNT(*) as c FROM items').get().c;
+      if (cnt === 0 && DB_PATH !== SEED_DB_PATH && fs.existsSync(SEED_DB_PATH)) {
+        dbInstance.close();
+        fs.copyFileSync(SEED_DB_PATH, DB_PATH);
+        console.log(`[DB] Re-seeded empty volume database at ${DB_PATH} from seed snapshot.`);
+        dbInstance = new DatabaseSync(DB_PATH);
+        dbInstance.exec('PRAGMA foreign_keys = ON;');
+        initSchema(dbInstance);
+      }
+    } catch (err) {
+      console.warn('[DB] Auto-seed check warning:', err.message);
+    }
   }
   return dbInstance;
 }

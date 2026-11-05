@@ -1249,7 +1249,7 @@ process.on('unhandledRejection', (reason) => {
   console.error('[UNHANDLED REJECTION RECOVERED]', reason);
 });
 
-// Bind to 0.0.0.0 for LAN access
+// Bind to 0.0.0.0 for LAN / cloud access
 server.listen(PORT, '0.0.0.0', () => {
   const ips = getNetworkIps();
   const tunnel = getTunnelInfo();
@@ -1266,3 +1266,16 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(` Locations: Florez Workshop | Old World Studio`);
   console.log(`=======================================================`);
 });
+
+// In cloud/Railway environments, also bind the alternate standard port (8080 or 3000)
+// so Railway's edge proxy succeeds whether the domain is configured for 8080 or 3000
+const altPort = Number(PORT) === 8080 ? 3000 : 8080;
+if (process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID || process.env.NODE_ENV === 'production') {
+  try {
+    const altServer = http.createServer(server.listeners('request')[0]);
+    altServer.on('error', () => {});
+    altServer.listen(altPort, '0.0.0.0', () => {
+      console.log(`[Cloud] Also listening on alternate port ${altPort}`);
+    });
+  } catch (e) {}
+}
