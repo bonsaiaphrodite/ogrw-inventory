@@ -26,6 +26,9 @@
         <button class="btn btn-primary" onclick="openNewItemModal()">
           <span class="icon">+</span> Add New Stock
         </button>
+        <button class="btn btn-upload" onclick="openCsvUploadModal()">
+          <span class="icon">📤</span> Upload CSV
+        </button>
         <button class="btn btn-network" onclick="openShareModal()">
           <span class="icon">🔗</span> Share Internally (LAN)
         </button>
@@ -114,6 +117,8 @@
             <option value="ALL">All Categories</option>
             <option value="TIM">Timber &amp; Beams (TIM)</option>
             <option value="FLR">Reclaimed Flooring (FLR)</option>
+            <option value="SID">Siding &amp; Paneling (SID)</option>
+            <option value="REV">Needs Review (REV)</option>
             <option value="ARC">Architectural Salvage (ARC)</option>
             <option value="FUR">Furniture &amp; Display (FUR)</option>
             <option value="ART">Art &amp; Collectibles (ART)</option>
@@ -123,12 +128,14 @@
           <select id="filter-status" onchange="applyFilters()">
             <option value="ALL">All Statuses</option>
             <option value="Available">Available</option>
+            <option value="Needs Review">Needs Review</option>
             <option value="In Mill Processing">In Mill Processing</option>
             <option value="Sold Out">Sold Out</option>
           </select>
 
           <select id="filter-sort" onchange="applyFilters()">
-            <option value="catalog">Sort: Catalog Order</option>
+            <option value="catalog">Sort: Catalog / Bay Order</option>
+            <option value="bay_asc">Sort: Bay Location (00-01, 01-01...)</option>
             <option value="florez_first">Sort: Florez Workshop First</option>
             <option value="studio_first">Sort: Old World Studio First</option>
             <option value="lot_asc">Sort: Lot Number (Lot 01, 02...)</option>
@@ -143,6 +150,10 @@
             <button class="view-btn active" id="view-table-btn" title="Table View" onclick="setViewMode('table')">☰</button>
             <button class="view-btn" id="view-grid-btn" title="Grid View" onclick="setViewMode('grid')">⊞</button>
           </div>
+
+          <button class="btn btn-outline btn-sm btn-clear-florez" onclick="openClearLocationModal('Florez Workshop')" title="Batch clear Florez Workshop inventory">
+            <span class="icon">🗑️</span> Clear Florez Stock
+          </button>
         </div>
       </div>
 
@@ -153,8 +164,24 @@
       <div class="results-header">
         <span id="results-count">Showing 0 inventory lots</span>
         <div class="quick-stock-hint">
-          <small class="hint">💡 <strong>Quick Stock:</strong> Use <strong>[-]</strong> or <strong>[+]</strong> on any item row to instantly log sales, deduct stock, or add incoming pieces.</small>
+          <small class="hint">💡 <strong>Quick Stock:</strong> Use <strong>[-]</strong> or <strong>[+]</strong> on any row. Select checkboxes to batch delete or manage items.</small>
           <button class="btn btn-text" onclick="resetFilters()">Reset All Filters</button>
+        </div>
+      </div>
+
+      <!-- Sticky Batch Action Bar (Appears when items are selected) -->
+      <div id="batch-action-bar" class="batch-action-bar" style="display: none;">
+        <div class="batch-bar-left">
+          <span class="batch-badge" id="batch-selected-count">0 lots selected</span>
+          <span class="batch-val" id="batch-selected-val">$0.00 valuation</span>
+        </div>
+        <div class="batch-bar-actions">
+          <button class="btn btn-sm btn-outline-light" onclick="selectAllFiltered()">Select All Filtered</button>
+          <button class="btn btn-sm btn-outline-light" onclick="selectLocationOnly('Florez Workshop')">Select All Florez</button>
+          <button class="btn btn-sm btn-outline-light" onclick="clearBatchSelection()">Clear Selection</button>
+          <button class="btn btn-sm btn-danger" onclick="promptBatchDelete()">
+            🗑️ Delete Selected (<span id="batch-del-btn-count">0</span>)
+          </button>
         </div>
       </div>
 
@@ -163,6 +190,9 @@
         <table class="inventory-table">
           <thead>
             <tr>
+              <th style="width: 38px; text-align: center;">
+                <input type="checkbox" id="select-all-header" onchange="toggleSelectAllVisible(this.checked)" title="Select all visible lots">
+              </th>
               <th style="width: 70px;">Photo</th>
               <th style="width: 130px;">SKU</th>
               <th>Item / Lot Name</th>
@@ -524,6 +554,8 @@
             <select id="form-category" required>
               <option value="TIM">Timber &amp; Beams (TIM)</option>
               <option value="FLR">Reclaimed Flooring (FLR)</option>
+              <option value="SID">Siding &amp; Paneling (SID)</option>
+              <option value="REV">Needs Review (REV)</option>
               <option value="ARC">Architectural Salvage (ARC)</option>
               <option value="FUR">Furniture &amp; Display (FUR)</option>
               <option value="ART">Art &amp; Collectibles (ART)</option>
@@ -578,14 +610,15 @@
           </div>
 
           <div class="form-group">
-            <label>Target Sale Price ($) *</label>
-            <input type="number" id="form-target-price" step="0.01" required placeholder="e.g. 4200.00">
+            <label>Target Sale Price ($)</label>
+            <input type="number" id="form-target-price" step="0.01" placeholder="e.g. 4200.00">
           </div>
 
           <div class="form-group">
             <label>Status</label>
             <select id="form-status">
               <option value="Available">Available</option>
+              <option value="Needs Review">Needs Review</option>
               <option value="In Mill Processing">In Mill Processing</option>
               <option value="Reserved">Reserved</option>
               <option value="Sold Out">Sold Out</option>
@@ -700,6 +733,7 @@
         <button class="btn btn-outline" onclick="openStockAdjustModalFromDetail(1)">➕ Add Stock</button>
         <button class="btn btn-outline" onclick="openEditItemModalFromDetail()">✏️ Edit Details</button>
         <button class="btn btn-primary" onclick="openListerForItem()">📢 Generate Listing</button>
+        <button class="btn btn-outline btn-danger" onclick="deleteItemFromDetail()" title="Permanently delete this lot">🗑️ Delete Lot</button>
       </div>
     </div>
   </div>
@@ -803,6 +837,151 @@
           <button type="submit" class="btn btn-primary">Dispatch Work Order</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- MODAL: CSV UPLOAD & BULK IMPORTER -->
+  <div class="modal-overlay" id="csv-upload-modal" onclick="closeModalOnOverlay(event, 'csv-upload-modal')">
+    <div class="modal-content modal-lg">
+      <div class="modal-header">
+        <div>
+          <h2>📤 Upload CSV to Inventory Manager</h2>
+          <p class="subtitle" style="margin: 0; color: var(--muted);">Import, update, or replace workshop &amp; studio inventory from spreadsheets</p>
+        </div>
+        <button class="modal-close" onclick="closeModal('csv-upload-modal')">×</button>
+      </div>
+
+      <div class="modal-body">
+        <!-- Template Download Banner -->
+        <div class="template-banner">
+          <div class="template-banner-text">
+            <strong>📋 Inventory Tag Spreadsheet Template:</strong>
+            <span>Fill out bunk/tag details in Google Sheets or Excel, then drag &amp; drop right into the system.</span>
+          </div>
+          <div class="template-banner-actions">
+            <a href="/Old_Growth_Inventory_Tag_Template.csv" download="Old_Growth_Inventory_Tag_Template.csv" class="btn btn-sm btn-outline">
+              📥 Download CSV
+            </a>
+            <a href="/Old_Growth_Inventory_Tag_Template.xlsx" download="Old_Growth_Inventory_Tag_Template.xlsx" class="btn btn-sm btn-primary">
+              📊 Download Excel (.xlsx)
+            </a>
+          </div>
+        </div>
+
+        <!-- Quick Load Section for Detected Local Files -->
+        <div id="csv-quick-files-wrap" class="quick-files-wrap" style="display: none;">
+          <div class="quick-files-title">⚡ Detected Recent Inventory Files:</div>
+          <div id="csv-quick-files-list" class="quick-files-list"></div>
+        </div>
+
+        <!-- File Drag & Drop Zone -->
+        <div class="drop-zone" id="csv-drop-zone" onclick="document.getElementById('csv-file-input').click()">
+          <div class="drop-zone-icon">📄</div>
+          <div class="drop-zone-text" id="csv-drop-text"><strong>Click to select CSV</strong> or drag &amp; drop file here</div>
+          <div class="drop-zone-hint">Supports Florez Millwork inventory sheets, Staged Inventory, or system CSV exports</div>
+          <input type="file" id="csv-file-input" accept=".csv,text/csv" style="display: none;" onchange="handleCsvFileSelected(event)">
+        </div>
+
+        <!-- Direct Paste CSV / Spreadsheet Text Area -->
+        <div style="margin-top: 12px; margin-bottom: 14px;">
+          <label style="display: block; font-weight: 600; font-size: 0.85rem; margin-bottom: 6px; color: var(--walnut);">
+            📋 Or Paste CSV / Spreadsheet Rows Directly (Ctrl+V from Excel, Google Sheets, or CSV):
+          </label>
+          <textarea
+            id="csv-paste-textarea"
+            rows="4"
+            placeholder="Paste your CSV text or copied spreadsheet rows (including header row) right here..."
+            style="width: 100%; padding: 10px; font-family: monospace; font-size: 0.8rem; border: 1.5px solid var(--border); border-radius: 6px; background: #fffdf9;"
+            oninput="handleCsvPasteInput(this.value)"
+          ></textarea>
+        </div>
+
+        <!-- Import Configuration Options -->
+        <div class="import-options-grid">
+          <div class="form-group">
+            <label>Target Facility / Location</label>
+            <select id="csv-target-location" onchange="handleImportConfigChange()">
+              <option value="Florez Workshop">Florez Workshop (Waynesboro, VA)</option>
+              <option value="Old World Studio">Old World Studio (Showroom &amp; Archive)</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label>Import Mode</label>
+            <div class="radio-group-vertical">
+              <label class="radio-label">
+                <input type="radio" name="csv-import-mode" value="replace" checked onchange="handleImportConfigChange()">
+                <span><strong>Replace existing location stock</strong> (Recommended: clears old lots &amp; loads fresh inventory)</span>
+              </label>
+              <label class="radio-label">
+                <input type="radio" name="csv-import-mode" value="append" onchange="handleImportConfigChange()">
+                <span><strong>Append to existing stock</strong> (Preserves current inventory and adds new lots)</span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <!-- Live Parsed Preview Container -->
+        <div id="csv-preview-wrap" class="csv-preview-wrap" style="display: none;">
+          <div class="preview-header">
+            <h3>📋 Parsed Data Preview</h3>
+            <span class="preview-stats" id="csv-preview-stats">0 lots ready to import</span>
+          </div>
+          <div class="preview-table-container">
+            <table class="preview-table">
+              <thead>
+                <tr>
+                  <th style="width: 110px;">SKU</th>
+                  <th style="width: 55px;">Bay</th>
+                  <th>Title / Name</th>
+                  <th>Category</th>
+                  <th>Species</th>
+                  <th>Dimensions</th>
+                  <th>Footage / Area</th>
+                  <th>Base Price</th>
+                  <th>Condition</th>
+                </tr>
+              </thead>
+              <tbody id="csv-preview-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline" onclick="closeModal('csv-upload-modal')">Cancel</button>
+        <button type="button" class="btn btn-primary" id="csv-import-btn" disabled onclick="executeCsvImport()">
+          <span class="icon">📥</span> Confirm &amp; Import Stock
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: BATCH & SINGLE DELETE CONFIRMATION -->
+  <div class="modal-overlay" id="batch-delete-modal" onclick="closeModalOnOverlay(event, 'batch-delete-modal')">
+    <div class="modal-content modal-md">
+      <div class="modal-header">
+        <h2 style="color: #b91c1c;">⚠️ Confirm Permanent Deletion</h2>
+        <button class="modal-close" onclick="closeModal('batch-delete-modal')">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="delete-warning-box">
+          <p id="batch-delete-msg">Are you sure you want to delete these lots?</p>
+          <div class="delete-stats-strip">
+            <div><strong id="batch-del-count-display">0</strong> Lots Selected</div>
+            <div><strong id="batch-del-val-display" style="color: #b91c1c;">$0.00</strong> Valuation</div>
+          </div>
+        </div>
+        <p style="font-size: 0.85rem; color: var(--muted); margin-bottom: 8px;">The following items will be permanently removed from the active database:</p>
+        <div class="batch-delete-list" id="batch-delete-list"></div>
+        <small style="color: var(--muted); display: block; margin-top: 10px;">🛡️ A safety backup of your database will be automatically created in <code>data/backups/</code> before deletion.</small>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline" onclick="closeModal('batch-delete-modal')">Cancel</button>
+        <button type="button" class="btn btn-danger" id="batch-delete-confirm-btn" onclick="executeBatchDelete()">
+          🗑️ Permanently Delete Items
+        </button>
+      </div>
     </div>
   </div>
 

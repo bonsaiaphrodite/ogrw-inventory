@@ -2,12 +2,24 @@ const { DatabaseSync } = require('node:sqlite');
 const path = require('node:path');
 const fs = require('node:fs');
 
-const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'data', 'inventory.db');
+const BUNDLED_DB_PATH = path.join(__dirname, 'data', 'inventory.db');
+const VOLUME_DIR = process.env.RAILWAY_VOLUME_MOUNT_PATH;
+const DB_PATH = process.env.DB_PATH || (VOLUME_DIR ? path.join(VOLUME_DIR, 'inventory.db') : BUNDLED_DB_PATH);
 
 // Ensure data and backup directories exist
 const dataDir = path.dirname(DB_PATH);
 fs.mkdirSync(dataDir, { recursive: true });
 fs.mkdirSync(path.join(dataDir, 'backups'), { recursive: true });
+
+// If running with a Railway persistent volume and volume DB does not exist yet, seed from bundled DB
+if (DB_PATH !== BUNDLED_DB_PATH && !fs.existsSync(DB_PATH) && fs.existsSync(BUNDLED_DB_PATH)) {
+  try {
+    fs.copyFileSync(BUNDLED_DB_PATH, DB_PATH);
+    console.log(`[DB] Initialized persistent volume database at ${DB_PATH} from bundled snapshot.`);
+  } catch (err) {
+    console.error('[DB] Failed to copy bundled DB to volume:', err.message);
+  }
+}
 
 let dbInstance = null;
 
@@ -75,6 +87,7 @@ function initSchema(db) {
       yard_location TEXT,
       status TEXT DEFAULT 'Available',
       bundle_ref TEXT,
+      bay_location TEXT,
       lot_number INTEGER,
       flag_notes TEXT,
       verified_by TEXT,
@@ -125,6 +138,26 @@ function initSchema(db) {
       created_at TEXT DEFAULT (datetime('now'))
     );
   `);
+
+  try {
+    db.exec('ALTER TABLE items ADD COLUMN bay_location TEXT;');
+  } catch (err) {
+    // Column already exists, safe to ignore
+  }
+
+  // Ensure Siding & Paneling (SID) and Review (REV) categories exist, and normalize !!_REVIEW -> REV
+  try {
+    db.exec(`
+      INSERT OR IGNORE INTO categories (code, name, description, unit_type)
+      VALUES 
+        ('SID', 'Siding & Paneling', 'Reclaimed barn siding, skin paneling, and weathered wall cladding', 'sq_ft'),
+        ('REV', 'Needs Review (REV)', 'Flagged or uncounted lots pending manual verification', 'pieces');
+      UPDATE items SET category_code = 'REV' WHERE category_code = '!!_REVIEW';
+      DELETE FROM categories WHERE code = '!!_REVIEW';
+    `);
+  } catch (err) {
+    // Ignore if error
+  }
 }
 
 function backupDatabase() {

@@ -135,7 +135,7 @@ const timberLots = [
 
 for (const item of timberLots) {
   const lotPadded = String(item.lot).padStart(2, '0');
-  const sku = `OG-TMB-2610-A-${lotPadded}`;
+  const sku = `FM-TIM-${lotPadded}`;
   const targetPrice = Math.round(item.bf * (item.priceBF || 14.00));
   const primaryPhoto = item.lot % 2 === 1 ? '/assets/photos/heart-pine.jpg' : '/assets/photos/beams.jpg';
 
@@ -166,7 +166,7 @@ for (const item of timberLots) {
     target_buyer: 'B2B - Contractors & Timber Framers',
     yard_location: 'Florez Workshop',
     status: 'Available',
-    bundle_ref: 'OG-TMB-2610-A',
+    bundle_ref: `FM-TIM-${lotPadded}`,
     lot_number: item.lot,
     flag_notes: item.flag || null,
     verified_by: 'Jim Morgan',

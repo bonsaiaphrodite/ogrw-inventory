@@ -45,6 +45,7 @@ const MIME_TYPES = {
   '.svg': 'image/svg+xml',
   '.ico': 'image/x-icon',
   '.csv': 'text/csv; charset=utf-8',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   '.txt': 'text/plain; charset=utf-8'
 };
 
@@ -655,6 +656,210 @@ const server = http.createServer(async (req, res) => {
         db.prepare('DELETE FROM items WHERE id = ?').run(itemId);
         logAction(db, null, 'DELETE_ITEM', `Deleted item ${item ? item.sku : itemId}`);
         return sendJson(res, 200, { success: true });
+      }
+
+      // 7.1 BATCH DELETE ITEMS
+      if (pathname === '/api/items/batch-delete' && method === 'POST') {
+        const data = await parseJsonBody(req);
+        let deletedCount = 0;
+        if (Array.isArray(data.ids) && data.ids.length > 0) {
+          const placeholders = data.ids.map(() => '?').join(',');
+          const info = db.prepare(`DELETE FROM items WHERE id IN (${placeholders})`).run(...data.ids);
+          deletedCount = info.changes;
+          logAction(db, null, 'BATCH_DELETE_ITEMS', `Batch deleted ${deletedCount} item(s) by ID: [${data.ids.join(', ')}]`);
+        } else if (data.location) {
+          const info = db.prepare(`DELETE FROM items WHERE yard_location = ?`).run(data.location);
+          deletedCount = info.changes;
+          logAction(db, null, 'BATCH_DELETE_ITEMS', `Batch deleted ${deletedCount} item(s) from location: ${data.location}`);
+        } else {
+          return sendJson(res, 400, { error: 'No item IDs or location specified for batch deletion' });
+        }
+        return sendJson(res, 200, { success: true, count: deletedCount });
+      }
+
+      // 7.2 IMPORT CSV ITEMS (APPEND OR REPLACE LOCATION)
+      if (pathname === '/api/items/import-csv' && method === 'POST') {
+        const payload = await parseJsonBody(req);
+        const { items: itemsToImport, replaceLocation, user = 'Erin / Jim Morgan' } = payload;
+        
+        if (!Array.isArray(itemsToImport) || itemsToImport.length === 0) {
+          return sendJson(res, 400, { error: 'No items provided for import' });
+        }
+
+        // Automatic snapshot before major import/replace
+        backupDatabase();
+
+        let deletedPrior = 0;
+        if (replaceLocation) {
+          const validLoc = replaceLocation === 'Old World Studio' ? 'Old World Studio' : 'Florez Workshop';
+          const delInfo = db.prepare('DELETE FROM items WHERE yard_location = ?').run(validLoc);
+          deletedPrior = delInfo.changes;
+          logAction(db, null, 'CLEAR_LOCATION_PRE_IMPORT', `Cleared ${deletedPrior} prior items from ${validLoc} before CSV import`, user);
+        }
+
+        const insertStmt = db.prepare(`
+          INSERT OR REPLACE INTO items (
+            sku, category_code, name, species_material, dimensions_display,
+            thickness_in, width_in, length_ft, pieces, board_feet, square_feet,
+            linear_feet, weight_lbs, description, provenance_origin, year_built,
+            historical_notes, condition, processing_needs, acquisition_cost,
+            price_per_unit, price_unit_type, target_price, target_buyer,
+            yard_location, status, bundle_ref, bay_location, lot_number, flag_notes,
+            verified_by, verified_date, primary_photo, chairish_ready,
+            marketplace_ready, website_featured
+          ) VALUES (
+            @sku, @category_code, @name, @species_material, @dimensions_display,
+            @thickness_in, @width_in, @length_ft, @pieces, @board_feet, @square_feet,
+            @linear_feet, @weight_lbs, @description, @provenance_origin, @year_built,
+            @historical_notes, @condition, @processing_needs, @acquisition_cost,
+            @price_per_unit, @price_unit_type, @target_price, @target_buyer,
+            @yard_location, @status, @bundle_ref, @bay_location, @lot_number, @flag_notes,
+            @verified_by, @verified_date, @primary_photo, @chairish_ready,
+            @marketplace_ready, @website_featured
+          )
+        `);
+
+        let insertedCount = 0;
+        const nowStr = new Date().toISOString().split('T')[0];
+
+        for (let i = 0; i < itemsToImport.length; i++) {
+          const item = itemsToImport[i];
+          const targetLoc = item.yard_location === 'Old World Studio' ? 'Old World Studio' : (replaceLocation || 'Florez Workshop');
+          
+          let cat = (item.category_code || '').toUpperCase().trim();
+          if (cat === '!!_REVIEW' || cat.includes('REV') || cat.includes('!!')) {
+            cat = 'REV';
+          }
+          if (!cat) {
+            const rawCat = (item.category || '').toLowerCase();
+            const rawName = (item.name || item.title || '').toLowerCase();
+            if (rawCat.includes('rev') || rawCat.includes('!!')) {
+              cat = 'REV';
+            } else if (rawCat === 'sid' || rawCat.includes('siding') || rawName.includes('siding') || rawName.includes('skin paneling')) {
+              cat = 'SID';
+            } else if (rawCat.includes('timber') || rawCat.includes('beam') || rawName.includes('timber') || rawName.includes('beam')) {
+              cat = 'TIM';
+            } else if (rawCat.includes('floor') || rawCat.includes('panel') || rawName.includes('floor') || rawName.includes('panel')) {
+              cat = 'FLR';
+            } else if (rawCat.includes('art') || rawName.includes('art') || rawName.includes('tray') || rawName.includes('lithograph')) {
+              cat = 'ART';
+            } else if (rawCat.includes('furn') || rawName.includes('table') || rawName.includes('chair') || rawName.includes('cabinet') || rawName.includes('desk')) {
+              cat = 'FUR';
+            } else if (rawCat.includes('arch') || rawName.includes('mantel') || rawName.includes('sink') || rawName.includes('door')) {
+              cat = 'ARC';
+            } else {
+              cat = targetLoc === 'Florez Workshop' ? 'FLR' : 'ARC';
+            }
+          }
+
+          let sku = (item.sku || item.sku_number || '').trim();
+          if (!sku) {
+            const prefix = targetLoc === 'Florez Workshop' ? 'FM' : 'OG';
+            const count = db.prepare('SELECT COUNT(*) as cnt FROM items WHERE category_code = ?').get(cat).cnt + 1;
+            sku = `${prefix}-${cat}-${String(count).padStart(2, '0')}`;
+          }
+
+          const metrics = calculateMetrics(item, db);
+          const bf = parseFloat(item.board_feet) || 0;
+          const sqft = parseFloat(item.square_feet) || 0;
+          const weight = parseFloat(item.weight_lbs) || metrics.weight_lbs || 0;
+          const lotNum = parseInt(item.lot_number) || (i + 1);
+          const bayLoc = (item.bay_location || '').trim();
+          const formattedBay = bayLoc ? (/^(bay\b|bb\d|br\d)/i.test(bayLoc) ? bayLoc : `Bay ${bayLoc}`) : '';
+
+          let photo = item.primary_photo;
+          if (!photo || photo === '/assets/photos/beams.jpg') {
+            const candidate1 = path.join(LOCAL_PHOTOS_DIR, 'florez', `item_${lotNum}.jpg`);
+            const candidate2 = path.join(PHOTO_ROOTS.florez, `item_${lotNum}.jpg`);
+            if (fs.existsSync(candidate1) || fs.existsSync(candidate2)) {
+              photo = `/api/photos/florez/item_${lotNum}.jpg`;
+            } else {
+              photo = (item.species_material || '').toLowerCase().includes('heart pine') ? '/assets/photos/heart-pine.jpg' : '/assets/photos/beams.jpg';
+            }
+          }
+
+          let targetPrice = parseFloat(item.target_price) || parseFloat(item.price) || parseFloat(item.base_price) || 0;
+          const unitPrice = parseFloat(item.price_per_unit) || 0;
+          if (targetPrice === 0 && unitPrice > 0) {
+            const mult = item.price_unit_type === 'BF' && bf > 0 ? bf : (sqft > 0 ? sqft : (parseInt(item.pieces) || 1));
+            targetPrice = Math.round(unitPrice * mult * 100) / 100;
+          }
+
+          const record = {
+            sku,
+            category_code: cat,
+            name: item.name || item.title || `Imported Lot ${lotNum}`,
+            species_material: (item.species_material || item.species || 'Antique Reclaimed Wood').trim(),
+            dimensions_display: item.dimensions_display || item.dimensions || '',
+            thickness_in: parseFloat(item.thickness_in) || 0.75,
+            width_in: parseFloat(item.width_in) || 0,
+            length_ft: parseFloat(item.length_ft) || 0,
+            pieces: parseInt(item.pieces) || (sqft > 0 ? Math.ceil(sqft / 3) : 1),
+            board_feet: bf,
+            square_feet: sqft,
+            linear_feet: parseFloat(item.linear_feet) || 0,
+            weight_lbs: weight,
+            description: item.description || item.full_description || item.tag_notes || '',
+            provenance_origin: item.provenance_origin || (formattedBay ? `${formattedBay} · Florez Millwork` : 'Reclaimed Historic Salvage · Shenandoah Valley'),
+            year_built: item.year_built || '',
+            historical_notes: item.historical_notes || 'Locally salvaged and milled by Florez Millwork in Waynesboro, VA.',
+            condition: item.condition || 'Good / Authentic Character',
+            processing_needs: item.processing_needs || '',
+            acquisition_cost: parseFloat(item.acquisition_cost) || 0,
+            price_per_unit: unitPrice,
+            price_unit_type: item.price_unit_type || (sqft > 0 ? 'SqFt' : 'BF'),
+            target_price: targetPrice,
+            target_buyer: item.target_buyer || 'B2B / B2C',
+            yard_location: targetLoc,
+            status: item.status || 'Available',
+            bundle_ref: item.bundle_ref || (formattedBay ? formattedBay : `LOT-${lotNum}`),
+            bay_location: bayLoc,
+            lot_number: lotNum,
+            flag_notes: item.flag_notes || (formattedBay ? formattedBay : ''),
+            verified_by: item.verified_by || user,
+            verified_date: item.verified_date || nowStr,
+            primary_photo: photo,
+            chairish_ready: item.chairish_ready ? 1 : 0,
+            marketplace_ready: item.marketplace_ready !== undefined ? (item.marketplace_ready ? 1 : 0) : 1,
+            website_featured: item.website_featured ? 1 : 0
+          };
+
+          insertStmt.run(record);
+          insertedCount++;
+        }
+
+        logAction(db, null, 'IMPORT_CSV', `Imported ${insertedCount} items into ${replaceLocation || 'inventory'}${replaceLocation ? ` (cleared ${deletedPrior} prior)` : ''}`, user);
+        return sendJson(res, 200, { success: true, count: insertedCount, deletedPrior });
+      }
+
+      // 7.3 QUICK ACCESS LOCAL CSV FILES IN DOWNLOADS
+      if (pathname === '/api/import/quick-files' && method === 'GET') {
+        const stagedPath = fs.existsSync('C:\\Users\\erinf\\Downloads\\Old_Growth_Inventory_Staged.csv')
+          ? 'C:\\Users\\erinf\\Downloads\\Old_Growth_Inventory_Staged.csv'
+          : path.join(PUBLIC_DIR, 'Old_Growth_Inventory_Staged.csv');
+        const candidates = [
+          { name: 'Old_Growth_Inventory_Staged.csv', path: stagedPath, label: '⭐ Complete Staged Inventory (161 Lots — Bays 0–10, Back Bays BB01–BB09 & Back Right BR01)' },
+          { name: 'Old_Growth_Inventory_Tag_Template.xlsx - Inventory Tag Data.csv', path: 'C:\\Users\\erinf\\Downloads\\Old_Growth_Inventory_Tag_Template.xlsx - Inventory Tag Data.csv', label: 'Erin\'s Adapted Inventory Tag CSV (14 Lots — Bay 1)' },
+          { name: 'florezmillfirstinventory - Sheet1.csv', path: 'C:\\Users\\erinf\\Downloads\\florezmillfirstinventory - Sheet1.csv', label: 'Florez Millwork Live Inventory (Sheet1 - 11 Lots with Pricing & Descriptions)' },
+          { name: 'Florez_Millworks_Final_Upload.csv', path: 'C:\\Users\\erinf\\Downloads\\Florez Millworks Inventory -1-001\\Florez Millworks Inventory\\Florez_Millworks_Final_Upload.csv', label: 'Florez Millworks Final Upload CSV (11 Lots with Categories)' },
+          { name: 'Old_Growth_Inventory_Tag_Template.csv', path: path.join(PUBLIC_DIR, 'Old_Growth_Inventory_Tag_Template.csv'), label: 'Sample Inventory Tag Template (Pre-filled Example Lots)' }
+        ];
+        const available = [];
+        for (const c of candidates) {
+          try {
+            if (fs.existsSync(c.path)) {
+              const stats = fs.statSync(c.path);
+              available.push({
+                name: c.name,
+                label: c.label,
+                size: stats.size,
+                modified: stats.mtime.toISOString(),
+                content: fs.readFileSync(c.path, 'utf8')
+              });
+            }
+          } catch (e) {}
+        }
+        return sendJson(res, 200, available);
       }
 
       // 8. CATEGORIES & LOCATIONS

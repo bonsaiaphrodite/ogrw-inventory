@@ -19,7 +19,11 @@ let state = {
   activeDetailItem: null,
   activeDetailPhotos: [],
   stockAdjustTargetItem: null,
-  stockAdjustDirection: -1
+  stockAdjustDirection: -1,
+  selectedItemIds: new Set(),
+  parsedCsvItems: [],
+  detectedQuickFiles: [],
+  pendingDeleteIds: []
 };
 
 // ==========================================================================
@@ -230,7 +234,7 @@ function renderCategoryChips() {
   `;
 
   state.categories.forEach(cat => {
-    const count = state.items.filter(i => i.category_code === cat.code).length;
+    const count = state.items.filter(i => i.category_code === cat.code || (cat.code === 'REV' && i.category_code === '!!_REVIEW')).length;
     html += `
       <button class="chip" onclick="filterByCategory('${cat.code}', this)">
         ${cat.name} <span class="chip-count">${count}</span>
@@ -283,13 +287,25 @@ function applyFilters() {
     }
 
     if (location !== 'ALL' && it.yard_location !== location) return false;
-    if (category !== 'ALL' && it.category_code !== category) return false;
+    if (category !== 'ALL') {
+      if (category === 'REV') {
+        if (it.category_code !== 'REV' && it.category_code !== '!!_REVIEW') return false;
+      } else if (it.category_code !== category) {
+        return false;
+      }
+    }
     if (status !== 'ALL' && it.status !== status) return false;
 
     return true;
   });
 
   state.filteredItems.sort((a, b) => {
+    if (sort === 'bay_asc') {
+      const bayA = a.bay_location || 'ZZZZ';
+      const bayB = b.bay_location || 'ZZZZ';
+      if (bayA !== bayB) return bayA.localeCompare(bayB);
+      return (a.lot_number || 0) - (b.lot_number || 0);
+    }
     if (sort === 'price_desc') return (b.target_price || 0) - (a.target_price || 0);
     if (sort === 'price_asc') return (a.target_price || 0) - (b.target_price || 0);
     if (sort === 'bf_desc') return (b.board_feet || 0) - (a.board_feet || 0);
@@ -387,7 +403,8 @@ function renderTable() {
   if (!tbody) return;
 
   if (state.filteredItems.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="11" style="text-align: center; padding: 40px; color: var(--muted);">No inventory lots match the current filter criteria.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="12" style="text-align: center; padding: 40px; color: var(--muted);">No inventory lots match the current filter criteria.</td></tr>`;
+    updateBatchActionBar();
     return;
   }
 
@@ -398,14 +415,19 @@ function renderTable() {
     else if (it.square_feet > 0) volumeDisplay = `${it.square_feet.toLocaleString()} Sq Ft`;
 
     const priceText = it.target_price > 0 ? `$${it.target_price.toLocaleString()}` : 'Inquire';
+    const isSelected = state.selectedItemIds.has(it.id);
 
     return `
-      <tr>
+      <tr class="${isSelected ? 'selected-row' : ''}">
+        <td style="text-align: center;">
+          <input type="checkbox" class="row-select-checkbox" data-id="${it.id}" ${isSelected ? 'checked' : ''} onchange="handleRowCheckboxChange(this, ${it.id})">
+        </td>
         <td>
           <img src="${photo}" class="row-thumb" alt="${it.name}" onclick="openItemDetail(${it.id})" onerror="this.onerror=null; this.src='/assets/photos/beams.jpg';">
         </td>
         <td>
           <span class="sku-tag" onclick="openItemDetail(${it.id})" style="cursor: pointer;">${it.sku}</span>
+          ${it.bay_location ? `<div class="badge-bay">${/^(bay\b|bb\d|br\d)/i.test(it.bay_location) ? it.bay_location : `Bay ${it.bay_location}`}</div>` : (it.bundle_ref && it.bundle_ref.startsWith('Bay ') ? `<div class="badge-bay">${it.bundle_ref}</div>` : '')}
         </td>
         <td>
           <div class="item-name-cell" onclick="openItemDetail(${it.id})" style="cursor: pointer;">${it.name}</div>
@@ -442,11 +464,14 @@ function renderTable() {
             <button class="btn btn-sm btn-outline" style="color: var(--walnut); border-color: var(--border);" onclick="openItemDetail(${it.id})" title="View Details">👁️</button>
             <button class="btn btn-sm btn-outline" style="color: var(--walnut); border-color: var(--border);" onclick="openEditItemModal(${it.id})" title="Edit Item">✏️</button>
             <button class="btn btn-sm btn-outline" style="color: var(--walnut); border-color: var(--border);" onclick="openListerForItem(${it.id})" title="Generate Listing">📢</button>
+            <button class="btn btn-sm btn-outline btn-danger" onclick="event.stopPropagation(); confirmSingleDelete(${it.id})" title="Delete Item">🗑️</button>
           </div>
         </td>
       </tr>
     `;
   }).join('');
+
+  updateBatchActionBar();
 }
 
 function renderGrid() {
@@ -638,7 +663,8 @@ async function openItemDetail(id) {
     document.getElementById('modal-item-location').innerText = it.yard_location;
     document.getElementById('modal-item-location').className = `badge ${it.yard_location === 'Florez Workshop' ? 'badge-florez' : 'badge-studio'}`;
     document.getElementById('modal-item-title').innerText = it.name;
-    document.getElementById('modal-item-sku').innerText = `${it.sku} · Location: ${it.yard_location}`;
+    const bayDisplay = it.bay_location || (it.bundle_ref && it.bundle_ref.startsWith('Bay ') ? it.bundle_ref.replace('Bay ', '') : '');
+    document.getElementById('modal-item-sku').innerText = `${it.sku}${bayDisplay ? ` · Bay: ${bayDisplay}` : ''} · Location: ${it.yard_location}`;
 
     // Specs
     document.getElementById('detail-loc').innerText = it.yard_location;
@@ -745,7 +771,7 @@ function openEditItemModal(id) {
   document.getElementById('item-form-title').innerText = `Edit Details: ${it.sku}`;
   document.getElementById('form-name').value = it.name || '';
   document.getElementById('form-location').value = it.yard_location || 'Florez Workshop';
-  document.getElementById('form-category').value = it.category_code || 'TIM';
+  document.getElementById('form-category').value = (it.category_code === '!!_REVIEW' ? 'REV' : it.category_code) || 'TIM';
   document.getElementById('form-sku').value = it.sku || '';
   document.getElementById('form-species').value = it.species_material || '';
   document.getElementById('form-dim-display').value = it.dimensions_display || '';
@@ -1216,4 +1242,585 @@ function showToast(message) {
   setTimeout(() => {
     toast.classList.remove('show');
   }, 3500);
+}
+
+// ==========================================================================
+// Batch Selection & Batch Actions
+// ==========================================================================
+
+function handleRowCheckboxChange(checkbox, id) {
+  if (checkbox.checked) {
+    state.selectedItemIds.add(id);
+  } else {
+    state.selectedItemIds.delete(id);
+  }
+  const tr = checkbox.closest('tr');
+  if (tr) tr.classList.toggle('selected-row', checkbox.checked);
+  updateBatchActionBar();
+}
+
+function toggleSelectAllVisible(checked) {
+  state.filteredItems.forEach(it => {
+    if (checked) {
+      state.selectedItemIds.add(it.id);
+    } else {
+      state.selectedItemIds.delete(it.id);
+    }
+  });
+  renderTable();
+}
+
+function selectAllFiltered() {
+  state.filteredItems.forEach(it => state.selectedItemIds.add(it.id));
+  renderTable();
+  showToast(`Selected ${state.filteredItems.length} visible lots`);
+}
+
+function selectLocationOnly(locationName) {
+  state.items.filter(it => it.yard_location === locationName).forEach(it => state.selectedItemIds.add(it.id));
+  renderTable();
+  showToast(`Selected all lots in ${locationName}`);
+}
+
+function clearBatchSelection() {
+  state.selectedItemIds.clear();
+  renderTable();
+}
+
+function updateBatchActionBar() {
+  const bar = document.getElementById('batch-action-bar');
+  const countEl = document.getElementById('batch-selected-count');
+  const valEl = document.getElementById('batch-selected-val');
+  const btnCount = document.getElementById('batch-del-btn-count');
+  const headerCheckbox = document.getElementById('select-all-header');
+
+  const count = state.selectedItemIds.size;
+  if (!bar) return;
+
+  if (count > 0) {
+    bar.style.display = 'flex';
+    if (countEl) countEl.innerText = `${count} lot${count > 1 ? 's' : ''} selected`;
+    if (btnCount) btnCount.innerText = count;
+
+    let totalVal = 0;
+    state.items.forEach(it => {
+      if (state.selectedItemIds.has(it.id)) {
+        totalVal += (it.target_price || 0);
+      }
+    });
+    if (valEl) valEl.innerText = `Total Valuation: $${totalVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  } else {
+    bar.style.display = 'none';
+  }
+
+  if (headerCheckbox && state.filteredItems.length > 0) {
+    const allVisibleSelected = state.filteredItems.every(it => state.selectedItemIds.has(it.id));
+    headerCheckbox.checked = allVisibleSelected;
+  }
+}
+
+// ==========================================================================
+// Deletion Handlers (Single & Batch)
+// ==========================================================================
+
+function confirmSingleDelete(id) {
+  const item = state.items.find(it => it.id === id);
+  if (!item) return;
+  openDeleteConfirmationModal([id], `Are you sure you want to permanently delete "${item.sku} - ${item.name}"?`);
+}
+
+function deleteItemFromDetail() {
+  if (!state.activeDetailItem) return;
+  const id = state.activeDetailItem.id;
+  closeModal('detail-modal');
+  confirmSingleDelete(id);
+}
+
+function openClearLocationModal(locationName) {
+  const targetItems = state.items.filter(it => it.yard_location === locationName);
+  if (targetItems.length === 0) {
+    showToast(`No inventory items currently in ${locationName}.`);
+    return;
+  }
+  const ids = targetItems.map(it => it.id);
+  openDeleteConfirmationModal(ids, `Are you sure you want to clear out ALL stock in "${locationName}"?`);
+}
+
+function promptBatchDelete() {
+  if (state.selectedItemIds.size === 0) return;
+  const ids = Array.from(state.selectedItemIds);
+  openDeleteConfirmationModal(ids, `Are you sure you want to permanently delete these ${ids.length} selected lots?`);
+}
+
+function openDeleteConfirmationModal(ids, message) {
+  state.pendingDeleteIds = ids;
+  const modalMsg = document.getElementById('batch-delete-msg');
+  const countEl = document.getElementById('batch-del-count-display');
+  const valEl = document.getElementById('batch-del-val-display');
+  const listEl = document.getElementById('batch-delete-list');
+
+  if (modalMsg) modalMsg.innerText = message;
+  if (countEl) countEl.innerText = ids.length;
+
+  let totalVal = 0;
+  const itemsToDelete = state.items.filter(it => ids.includes(it.id));
+
+  itemsToDelete.forEach(it => {
+    totalVal += (it.target_price || 0);
+  });
+
+  if (valEl) valEl.innerText = '$' + totalVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  if (listEl) {
+    listEl.innerHTML = itemsToDelete.map(it => `
+      <div class="batch-delete-item">
+        <div>
+          <span class="del-sku">${it.sku}</span> · <strong>${it.name}</strong> <small>(${it.yard_location})</small>
+        </div>
+        <span class="del-price">$${(it.target_price || 0).toLocaleString()}</span>
+      </div>
+    `).join('');
+  }
+
+  openModal('batch-delete-modal');
+}
+
+async function executeBatchDelete() {
+  if (!state.pendingDeleteIds || state.pendingDeleteIds.length === 0) return;
+  const btn = document.getElementById('batch-delete-confirm-btn');
+  btn.disabled = true;
+  btn.innerText = 'Deleting...';
+
+  try {
+    const res = await fetch('/api/items/batch-delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: state.pendingDeleteIds })
+    });
+    const result = await res.json();
+    if (!res.ok || !result.success) throw new Error(result.error || 'Failed to delete items');
+
+    showToast(`Successfully deleted ${result.count} inventory lot(s).`);
+    state.pendingDeleteIds.forEach(id => state.selectedItemIds.delete(id));
+    state.pendingDeleteIds = [];
+    closeModal('batch-delete-modal');
+
+    await Promise.all([loadStats(), loadItems(), loadLogs(), loadCategories(), loadLocations()]);
+  } catch (err) {
+    console.error('Batch delete error:', err);
+    showToast(`Error: ${err.message}`);
+  } finally {
+    btn.disabled = false;
+    btn.innerText = '🗑️ Permanently Delete Items';
+  }
+}
+
+// ==========================================================================
+// CSV File Upload & Intelligent Importer
+// ==========================================================================
+
+async function openCsvUploadModal() {
+  state.parsedCsvItems = [];
+  const fileInput = document.getElementById('csv-file-input');
+  if (fileInput) fileInput.value = '';
+  const pasteArea = document.getElementById('csv-paste-textarea');
+  if (pasteArea) pasteArea.value = '';
+  document.getElementById('csv-drop-text').innerHTML = '<strong>Click to select CSV</strong> or drag &amp; drop file here';
+  document.getElementById('csv-preview-wrap').style.display = 'none';
+  document.getElementById('csv-import-btn').disabled = true;
+
+  setupDragAndDrop();
+  await loadDetectedQuickFiles();
+  openModal('csv-upload-modal');
+}
+
+function handleCsvPasteInput(text) {
+  const trimmed = (text || '').trim();
+  if (!trimmed) {
+    state.parsedCsvItems = [];
+    renderCsvPreview();
+    return;
+  }
+  document.getElementById('csv-drop-text').innerHTML = `<strong>Pasted CSV / Spreadsheet Data</strong> (${(trimmed.length / 1024).toFixed(1)} KB)`;
+  parseCsvText(trimmed);
+}
+
+function setupDragAndDrop() {
+  const zone = document.getElementById('csv-drop-zone');
+  if (!zone || zone._bound) return;
+  zone._bound = true;
+
+  ['dragenter', 'dragover'].forEach(name => {
+    zone.addEventListener(name, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      zone.classList.add('dragover');
+    });
+  });
+
+  ['dragleave', 'drop'].forEach(name => {
+    zone.addEventListener(name, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      zone.classList.remove('dragover');
+    });
+  });
+
+  zone.addEventListener('drop', (e) => {
+    const files = e.dataTransfer.files;
+    if (files && files.length > 0) {
+      processCsvFile(files[0]);
+    }
+  });
+}
+
+async function loadDetectedQuickFiles() {
+  const wrap = document.getElementById('csv-quick-files-wrap');
+  const list = document.getElementById('csv-quick-files-list');
+  try {
+    const res = await fetch('/api/import/quick-files');
+    if (!res.ok) return;
+    state.detectedQuickFiles = await res.json();
+
+    if (state.detectedQuickFiles.length > 0) {
+      wrap.style.display = 'block';
+      list.innerHTML = state.detectedQuickFiles.map((f, i) => `
+        <button type="button" class="quick-file-btn" onclick="loadQuickFile(${i})">
+          <div>
+            <strong>⚡ Load ${f.name}</strong>
+            <div style="font-size: 0.75rem; color: var(--muted);">${f.label}</div>
+          </div>
+          <small>${(f.size / 1024).toFixed(1)} KB</small>
+        </button>
+      `).join('');
+    } else {
+      wrap.style.display = 'none';
+    }
+  } catch (err) {
+    console.error('Failed to load quick files:', err);
+  }
+}
+
+function loadQuickFile(index) {
+  const file = state.detectedQuickFiles[index];
+  if (!file || !file.content) return;
+  document.getElementById('csv-drop-text').innerHTML = `<strong>Loaded: ${file.name}</strong> (${(file.size / 1024).toFixed(1)} KB)`;
+  parseCsvText(file.content);
+}
+
+function handleCsvFileSelected(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  processCsvFile(file);
+}
+
+function processCsvFile(file) {
+  document.getElementById('csv-drop-text').innerHTML = `<strong>Selected: ${file.name}</strong> (${(file.size / 1024).toFixed(1)} KB)`;
+  const reader = new FileReader();
+  reader.onload = (e) => parseCsvText(e.target.result);
+  reader.readAsText(file);
+}
+
+function parseCsvTokens(text) {
+  // Detect TSV (tab-separated, e.g. pasted directly from Excel or Google Sheets) vs CSV
+  const firstLine = (text.split(/\r?\n/)[0] || '');
+  const delimiter = (firstLine.split('\t').length > firstLine.split(',').length) ? '\t' : ',';
+
+  const lines = [];
+  let row = [];
+  let inQuotes = false;
+  let current = '';
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    const next = text[i + 1];
+    if (c === '"') {
+      if (inQuotes && next === '"') {
+        current += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (c === delimiter && !inQuotes) {
+      row.push(current.trim());
+      current = '';
+    } else if ((c === '\r' || c === '\n') && !inQuotes) {
+      if (c === '\r' && next === '\n') i++;
+      row.push(current.trim());
+      if (row.length > 1 || (row.length === 1 && row[0] !== '')) {
+        lines.push(row);
+      }
+      row = [];
+      current = '';
+    } else {
+      current += c;
+    }
+  }
+  if (current || row.length > 0) {
+    row.push(current.trim());
+    lines.push(row);
+  }
+  return lines;
+}
+
+function parseCsvText(rawText) {
+  const rows = parseCsvTokens(rawText);
+  if (rows.length < 2) {
+    showToast('CSV file is empty or missing data rows.');
+    return;
+  }
+
+  const rawHeaders = rows[0];
+  const headers = rawHeaders.map(h => h.toLowerCase().trim().replace(/^["']|["']$/g, ''));
+
+  const getCol = (rowObj, ...aliases) => {
+    for (const a of aliases) {
+      if (rowObj[a] !== undefined && rowObj[a] !== '') return rowObj[a];
+    }
+    return '';
+  };
+
+  const targetLoc = document.getElementById('csv-target-location').value;
+
+  const parsedItems = [];
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    if (r.length === 0 || (r.length === 1 && r[0] === '')) continue;
+    const rowObj = {};
+    headers.forEach((h, idx) => {
+      rowObj[h] = r[idx] !== undefined ? r[idx] : '';
+    });
+
+    const title = getCol(rowObj, 'title', 'name', 'item_name', 'item', 'lot_name', 'product');
+    if (!title) continue;
+
+    const rowLocation = getCol(rowObj, 'location', 'yard_location', 'facility') || targetLoc;
+    const lotNum = parseInt(getCol(rowObj, 'lot_number', 'lot', 'lot_no', 'tag_number', 'tag_#')) || (parsedItems.length + 1);
+    const sku = getCol(rowObj, 'sku_number', 'sku', 'sku_#').trim();
+    const bayLoc = getCol(rowObj, 'bay_location', 'bay', 'bay_#', 'rack', 'bay_loc').trim();
+
+    const condition = getCol(rowObj, 'condition', 'surface', 'profile') || 'Good';
+    const desc = getCol(rowObj, 'tag_notes', 'notes', 'provenance', 'full description', 'description', 'desc', 'details');
+    const category = getCol(rowObj, 'category', 'category_code', 'cat', 'type');
+
+    let rawThick = getCol(rowObj, 'thickness_in', 'thickness', 'thick');
+    let thick = parseFloat(String(rawThick).replace(/[^0-9.]/g, '')) || 0;
+
+    let rawWidth = String(getCol(rowObj, 'width_in', 'width')).trim();
+    let widthIn = 0;
+    if (rawWidth.includes(',') || rawWidth.includes('&')) {
+      const parts = rawWidth.split(/[,&]/).map(p => parseFloat(p.trim())).filter(n => !isNaN(n));
+      if (parts.length > 0) widthIn = parts[0];
+    } else {
+      widthIn = parseFloat(rawWidth.replace(/[^0-9.]/g, '')) || 0;
+    }
+
+    let rawLen = String(getCol(rowObj, 'length_ft', 'length', 'l')).trim();
+    let lengthFt = 0;
+    let lengthDisplaySpan = '';
+    if (rawLen.includes('-')) {
+      lengthDisplaySpan = `${rawLen}'`;
+      const parts = rawLen.split('-').map(p => parseFloat(p.trim())).filter(n => !isNaN(n));
+      if (parts.length === 2) lengthFt = (parts[0] + parts[1]) / 2;
+      else if (parts.length === 1) lengthFt = parts[0];
+    } else {
+      lengthFt = parseFloat(rawLen.replace(/[^0-9.]/g, '')) || 0;
+    }
+
+    let dimDisplay = getCol(rowObj, 'dimensions', 'dimensions_display', 'dim', 'size').replace(/""/g, '"').trim();
+    if (!dimDisplay) {
+      if (thick > 0 && widthIn > 0 && lengthFt > 0) {
+        dimDisplay = `${thick}" x ${rawWidth || widthIn}" x ${lengthDisplaySpan || `${lengthFt}'`}`;
+      } else if (widthIn > 0) {
+        dimDisplay = `${rawWidth || widthIn}" wide${lengthDisplaySpan ? ` (${lengthDisplaySpan})` : ''}`;
+      } else if (desc) {
+        const wm = desc.match(/-\s*Width:\s*([^\n\r-]+)/i);
+        if (wm) dimDisplay = wm[1].trim();
+      }
+    }
+
+    let rawSqft = String(getCol(rowObj, 'square_feet', 'sqft', 'sq_ft')).trim();
+    let sqft = (rawSqft && rawSqft.toLowerCase() !== 'n/a') ? (parseFloat(rawSqft.replace(/[^0-9.]/g, '')) || 0) : 0;
+    if (sqft === 0 && desc) {
+      const qm = desc.match(/-\s*Quantity:\s*([\d,]+)\s*(?:sq\s*ft|sqft)?/i);
+      if (qm) sqft = parseFloat(qm[1].replace(/,/g, '')) || 0;
+    }
+
+    let rawBf = String(getCol(rowObj, 'board_feet', 'bf', 'boardfeet')).trim();
+    let bf = (rawBf && rawBf.toLowerCase() !== 'n/a') ? (parseFloat(rawBf.replace(/[^0-9.]/g, '')) || 0) : 0;
+
+    let pieces = parseInt(getCol(rowObj, 'pieces', 'pcs', 'count', 'quantity')) || (sqft > 0 ? Math.ceil(sqft / 3) : 1);
+
+    let pricePerUnit = parseFloat(String(getCol(rowObj, 'price_per_unit', 'unit_price', 'price/unit')).replace(/[^0-9.]/g, '')) || 0;
+    let priceUnitType = getCol(rowObj, 'price_unit_type', 'unit', 'price_unit') || (sqft > 0 ? 'SqFt' : (bf > 0 ? 'BF' : 'Each'));
+
+    const rawTargetPrice = getCol(rowObj, 'base_price', 'target_price', 'price', 'total_price', 'retail_price', 'cost', 'valuation');
+    let price = parseFloat(String(rawTargetPrice).replace(/[^0-9.]/g, '')) || 0;
+
+    if (price === 0 && pricePerUnit > 0) {
+      const multiplier = (priceUnitType === 'BF' && bf > 0) ? bf : (sqft > 0 ? sqft : pieces);
+      price = Math.round(pricePerUnit * multiplier * 100) / 100;
+    }
+
+    let species = getCol(rowObj, 'species', 'species_material', 'material', 'wood_species', 'wood_type').trim();
+    if (!species) {
+      const fullText = (title + ' ' + desc).toLowerCase();
+      if (fullText.includes('heart pine')) species = 'Heart Pine';
+      else if (fullText.includes('white oak')) species = 'White Oak';
+      else if (fullText.includes('white pine')) species = 'White Pine';
+      else if (fullText.includes('red oak')) species = 'Red Oak';
+      else if (fullText.includes('oak')) species = 'Reclaimed Oak';
+      else if (fullText.includes('walnut')) species = 'Black Walnut';
+      else if (fullText.includes('chestnut')) species = 'American Chestnut';
+      else if (fullText.includes('poplar')) species = 'Poplar';
+      else species = 'Antique Reclaimed Wood';
+    }
+
+    let catCode = category ? category.toUpperCase().trim() : '';
+    if (catCode === '!!_REVIEW' || catCode.includes('REV') || catCode.includes('!!')) {
+      catCode = 'REV';
+    }
+    if (!catCode || !['FLR', 'TIM', 'SID', 'REV', 'ARC', 'FUR', 'ART', 'HDW', 'MISC'].includes(catCode)) {
+      const fullTextCat = (title + ' ' + category + ' ' + sku).toLowerCase();
+      if (fullTextCat.includes('rev') || fullTextCat.includes('!!')) {
+        catCode = 'REV';
+      } else if (fullTextCat.includes('siding') || fullTextCat.includes('skin paneling')) {
+        catCode = 'SID';
+      } else if (fullTextCat.includes('timber') || fullTextCat.includes('beam')) {
+        catCode = 'TIM';
+      } else if (fullTextCat.includes('art') || fullTextCat.includes('tray')) {
+        catCode = 'ART';
+      } else if (fullTextCat.includes('furn') || fullTextCat.includes('table') || fullTextCat.includes('chair')) {
+        catCode = 'FUR';
+      } else if (fullTextCat.includes('arch') || fullTextCat.includes('mantel')) {
+        catCode = 'ARC';
+      } else {
+        catCode = rowLocation === 'Florez Workshop' ? (bf > sqft ? 'TIM' : 'FLR') : 'ARC';
+      }
+    }
+
+    const itemStatus = getCol(rowObj, 'status') || 'Available';
+    const formattedBay = bayLoc ? (/^(bay\b|bb\d|br\d)/i.test(bayLoc) ? bayLoc : `Bay ${bayLoc}`) : '';
+
+    parsedItems.push({
+      lot_number: lotNum,
+      sku: sku,
+      bay_location: bayLoc,
+      bundle_ref: formattedBay ? formattedBay : `LOT-${lotNum}`,
+      name: title,
+      title: title,
+      price: price,
+      target_price: price,
+      base_price: price,
+      price_per_unit: pricePerUnit,
+      price_unit_type: priceUnitType,
+      condition: condition,
+      species_material: species,
+      species: species,
+      dimensions_display: dimDisplay,
+      thickness_in: thick,
+      width_in: widthIn,
+      length_ft: lengthFt,
+      square_feet: sqft,
+      board_feet: bf,
+      pieces: pieces,
+      category_code: catCode,
+      description: desc,
+      full_description: desc,
+      tag_notes: desc,
+      status: itemStatus,
+      yard_location: rowLocation
+    });
+  }
+
+  state.parsedCsvItems = parsedItems;
+  renderCsvPreview();
+}
+
+function handleImportConfigChange() {
+  const targetLoc = document.getElementById('csv-target-location').value;
+  state.parsedCsvItems.forEach(it => it.yard_location = targetLoc);
+  renderCsvPreview();
+}
+
+function renderCsvPreview() {
+  const wrap = document.getElementById('csv-preview-wrap');
+  const tbody = document.getElementById('csv-preview-tbody');
+  const stats = document.getElementById('csv-preview-stats');
+  const btn = document.getElementById('csv-import-btn');
+
+  if (!state.parsedCsvItems || state.parsedCsvItems.length === 0) {
+    wrap.style.display = 'none';
+    btn.disabled = true;
+    return;
+  }
+
+  const count = state.parsedCsvItems.length;
+  const totalVal = state.parsedCsvItems.reduce((sum, it) => sum + (it.price || 0), 0);
+  const totalSqft = state.parsedCsvItems.reduce((sum, it) => sum + (it.square_feet || 0), 0);
+  const totalBf = state.parsedCsvItems.reduce((sum, it) => sum + (it.board_feet || 0), 0);
+
+  wrap.style.display = 'block';
+  stats.innerHTML = `<strong>${count} lots parsed</strong>${totalVal > 0 ? ` · Total Value: $${totalVal.toLocaleString()}` : ''} ${totalSqft > 0 ? `· ${totalSqft.toLocaleString()} Sq Ft` : ''} ${totalBf > 0 ? `· ${totalBf.toLocaleString()} BF` : ''}`;
+  btn.disabled = false;
+  btn.innerHTML = `<span class="icon">📥</span> Confirm &amp; Import ${count} Lots`;
+
+  tbody.innerHTML = state.parsedCsvItems.map(it => `
+    <tr>
+      <td><span class="sku-tag" style="font-size: 0.75rem;">${it.sku || `#${it.lot_number}`}</span></td>
+      <td>${it.bay_location ? `<span class="badge-bay">${/^(bay\b|bb\d|br\d)/i.test(it.bay_location) ? it.bay_location : `Bay ${it.bay_location}`}</span>` : '—'}</td>
+      <td><strong>${it.name}</strong></td>
+      <td><span class="badge" style="font-size: 0.7rem; padding: 2px 6px;">${it.category_code}</span></td>
+      <td>${it.species_material}</td>
+      <td>${it.dimensions_display || '—'}</td>
+      <td>${it.square_feet > 0 ? `${it.square_feet.toLocaleString()} Sq Ft` : (it.board_feet > 0 ? `${it.board_feet.toLocaleString()} BF` : `${it.pieces} pcs`)}</td>
+      <td><strong class="highlight-gold">${it.price > 0 ? `$${it.price.toLocaleString()}` : (it.price_per_unit > 0 ? `$${it.price_per_unit}/${it.price_unit_type}` : 'Inquire')}</strong></td>
+      <td>${it.condition || 'Good'}</td>
+    </tr>
+  `).join('');
+}
+
+async function executeCsvImport() {
+  if (!state.parsedCsvItems || state.parsedCsvItems.length === 0) return;
+
+  const btn = document.getElementById('csv-import-btn');
+  const mode = document.querySelector('input[name="csv-import-mode"]:checked').value;
+  const targetLoc = document.getElementById('csv-target-location').value;
+
+  btn.disabled = true;
+  btn.innerText = 'Importing stock...';
+
+  try {
+    const payload = {
+      items: state.parsedCsvItems,
+      replaceLocation: mode === 'replace' ? targetLoc : null
+    };
+
+    const res = await fetch('/api/items/import-csv', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    const result = await res.json();
+    if (!res.ok || !result.success) throw new Error(result.error || 'Failed to import CSV');
+
+    closeModal('csv-upload-modal');
+    showToast(`✅ Successfully imported ${result.count} inventory lots into ${targetLoc}!${result.deletedPrior ? ` (Cleared ${result.deletedPrior} old lots)` : ''}`);
+
+    document.getElementById('filter-location').value = targetLoc;
+
+    await Promise.all([
+      loadStats(),
+      loadItems(),
+      loadCategories(),
+      loadLocations(),
+      loadLogs()
+    ]);
+  } catch (err) {
+    console.error('Import error:', err);
+    showToast(`Import Error: ${err.message}`);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<span class="icon">📥</span> Confirm &amp; Import Stock';
+  }
 }
