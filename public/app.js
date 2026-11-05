@@ -403,7 +403,7 @@ function renderTable() {
   if (!tbody) return;
 
   if (state.filteredItems.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="12" style="text-align: center; padding: 40px; color: var(--muted);">No inventory lots match the current filter criteria.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="11" style="text-align: center; padding: 40px; color: var(--muted);">No inventory lots match the current filter criteria.</td></tr>`;
     updateBatchActionBar();
     return;
   }
@@ -442,13 +442,6 @@ function renderTable() {
         </td>
         <td>
           <div>${it.dimensions_display || '—'}</div>
-        </td>
-        <td>
-          <div class="stock-stepper-wrap">
-            <button class="step-btn minus" onclick="event.stopPropagation(); openStockAdjustModal(${it.id}, -1)" title="Subtract / Log Sale">−</button>
-            <span class="stock-count-display">${it.pieces}</span>
-            <button class="step-btn" onclick="event.stopPropagation(); openStockAdjustModal(${it.id}, 1)" title="Add Stock">+</button>
-          </div>
         </td>
         <td>
           <strong class="highlight-gold">${volumeDisplay}</strong>
@@ -509,16 +502,6 @@ function renderGrid() {
           </div>
           <div class="grid-details-row">
             <span>${it.dimensions_display || ''}</span>
-          </div>
-
-          <!-- Grid Stock Stepper -->
-          <div class="grid-stock-stepper" onclick="event.stopPropagation()">
-            <span style="font-size: 0.78rem; color: var(--muted); font-weight: 600;">Stock:</span>
-            <div class="stock-stepper-wrap">
-              <button class="step-btn minus" onclick="openStockAdjustModal(${it.id}, -1)">−</button>
-              <span class="stock-count-display">${it.pieces} pcs</span>
-              <button class="step-btn" onclick="openStockAdjustModal(${it.id}, 1)">+</button>
-            </div>
           </div>
 
           <div class="grid-price-row">
@@ -669,7 +652,8 @@ async function openItemDetail(id) {
     // Specs
     document.getElementById('detail-loc').innerText = it.yard_location;
     document.getElementById('detail-dim').innerText = it.dimensions_display || 'Not specified';
-    document.getElementById('detail-pcs').innerText = `${it.pieces} pieces in stock`;
+    const detailPcsEl = document.getElementById('detail-pcs');
+    if (detailPcsEl) detailPcsEl.innerText = `${it.pieces} pieces in stock`;
     
     let volText = '—';
     if (it.board_feet > 0) volText = `${it.board_feet.toLocaleString()} BF`;
@@ -1772,7 +1756,7 @@ function renderCsvPreview() {
       <td><span class="badge" style="font-size: 0.7rem; padding: 2px 6px;">${it.category_code}</span></td>
       <td>${it.species_material}</td>
       <td>${it.dimensions_display || '—'}</td>
-      <td>${it.square_feet > 0 ? `${it.square_feet.toLocaleString()} Sq Ft` : (it.board_feet > 0 ? `${it.board_feet.toLocaleString()} BF` : `${it.pieces} pcs`)}</td>
+      <td>${it.square_feet > 0 ? `${it.square_feet.toLocaleString()} Sq Ft` : (it.board_feet > 0 ? `${it.board_feet.toLocaleString()} BF` : '—')}</td>
       <td><strong class="highlight-gold">${it.price > 0 ? `$${it.price.toLocaleString()}` : (it.price_per_unit > 0 ? `$${it.price_per_unit}/${it.price_unit_type}` : 'Inquire')}</strong></td>
       <td>${it.condition || 'Good'}</td>
     </tr>

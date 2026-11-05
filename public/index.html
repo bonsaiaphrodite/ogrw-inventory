@@ -164,7 +164,7 @@
       <div class="results-header">
         <span id="results-count">Showing 0 inventory lots</span>
         <div class="quick-stock-hint">
-          <small class="hint">💡 <strong>Quick Stock:</strong> Use <strong>[-]</strong> or <strong>[+]</strong> on any row. Select checkboxes to batch delete or manage items.</small>
+          <small class="hint">💡 Select checkboxes to batch delete or manage items.</small>
           <button class="btn btn-text" onclick="resetFilters()">Reset All Filters</button>
         </div>
       </div>
@@ -199,7 +199,6 @@
               <th>Location</th>
               <th>Category &amp; Species</th>
               <th>Dimensions</th>
-              <th style="width: 140px; text-align: center;">Stock Count</th>
               <th>Volume / Area</th>
               <th>Target Price</th>
               <th>Status</th>
@@ -594,9 +593,9 @@
             <input type="number" id="form-length" step="0.5" placeholder="16">
           </div>
 
-          <div class="form-group">
-            <label>Piece Count *</label>
-            <input type="number" id="form-pieces" value="1" min="0" required>
+          <div class="form-group" style="display: none;">
+            <label>Piece Count</label>
+            <input type="number" id="form-pieces" value="1" min="0">
           </div>
 
           <div class="form-group">
@@ -683,10 +682,6 @@
                 <span class="spec-val font-bold" id="detail-dim">—</span>
               </div>
               <div class="spec-row">
-                <span class="spec-lbl">Current Stock Count:</span>
-                <span class="spec-val font-bold" id="detail-pcs">—</span>
-              </div>
-              <div class="spec-row">
                 <span class="spec-lbl">Footage / Area:</span>
                 <span class="spec-val highlight-gold" id="detail-bf">—</span>
               </div>
@@ -729,8 +724,6 @@
       </div>
 
       <div class="modal-footer">
-        <button class="btn btn-outline" onclick="openStockAdjustModalFromDetail(-1)">➖ Deduct / Log Sale</button>
-        <button class="btn btn-outline" onclick="openStockAdjustModalFromDetail(1)">➕ Add Stock</button>
         <button class="btn btn-outline" onclick="openEditItemModalFromDetail()">✏️ Edit Details</button>
         <button class="btn btn-primary" onclick="openListerForItem()">📢 Generate Listing</button>
         <button class="btn btn-outline btn-danger" onclick="deleteItemFromDetail()" title="Permanently delete this lot">🗑️ Delete Lot</button>
