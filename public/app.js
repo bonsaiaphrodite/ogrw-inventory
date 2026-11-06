@@ -167,11 +167,11 @@ function renderStats(data) {
   const s = data.summary;
 
   document.getElementById('stat-valuation').innerText = '$' + (s.total_valuation || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  document.getElementById('stat-pieces').innerText = `${s.total_items || 0} inventory lots (${s.total_pieces || 0} pcs)`;
+  document.getElementById('stat-pieces').innerText = `${s.total_items || 0} cataloged lots`;
   document.getElementById('stat-florez-count').innerText = `${s.florez_count || 0} lots`;
   document.getElementById('stat-studio-count').innerText = `${s.studio_count || 0} lots`;
-  document.getElementById('stat-bf').innerText = (s.total_board_feet || 0).toLocaleString('en-US') + ' BF';
-  document.getElementById('stat-sqft').innerText = `${(s.total_square_feet || 0).toLocaleString('en-US')} Sq Ft Flooring`;
+  document.getElementById('stat-bf').innerText = (s.total_square_feet || 0).toLocaleString('en-US') + ' Sq Ft';
+  document.getElementById('stat-sqft').innerText = 'Flooring, Siding & Lumber';
   document.getElementById('stat-mill').innerText = (s.in_mill_items || 0) + ` (${data.activeMillJobs || 0} orders)`;
 }
 
@@ -179,7 +179,7 @@ function updateLocationHeroStats() {
   const florezItems = state.items.filter(i => i.yard_location === 'Florez Workshop');
   const studioItems = state.items.filter(i => i.yard_location === 'Old World Studio');
 
-  const florezBf = florezItems.reduce((sum, i) => sum + (i.board_feet || 0), 0);
+  const florezSqft = florezItems.reduce((sum, i) => sum + (i.square_feet || 0), 0);
   const florezVal = florezItems.reduce((sum, i) => sum + (i.target_price || 0), 0);
 
   const studioVal = studioItems.reduce((sum, i) => sum + (i.target_price || 0), 0);
@@ -191,7 +191,7 @@ function updateLocationHeroStats() {
   };
 
   setSafe('florez-items-stat', florezItems.length);
-  setSafe('florez-bf-stat', florezBf.toLocaleString() + ' BF');
+  setSafe('florez-bf-stat', florezSqft.toLocaleString() + ' Sq Ft');
   setSafe('florez-val-stat', '$' + florezVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
 
   setSafe('studio-items-stat', studioItems.length);
